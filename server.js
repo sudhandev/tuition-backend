@@ -157,7 +157,7 @@ app.get('/api/attendance', async (req, res) => {
   }
 });
 
-// 6. POST: Save attendance per session, but store fees globally for the date
+// 6. POST: Save attendance and fees safely without overwriting attendance with empty data
 app.post('/api/attendance', async (req, res) => {
   try {
     const { date, session = 'Morning', attendanceData, feesPaidData } = req.body;
@@ -179,18 +179,21 @@ app.post('/api/attendance', async (req, res) => {
       record.sessions[session] = { attendance: {}, feesPaid: {} };
     }
 
-    // Save attendance for this specific session
-    record.sessions[session].attendance = attendanceData || {};
-
-    // Save fees globally at the date level so Morning & Evening stay permanently in sync
-    if (feesPaidData) {
-      record.feesPaid = feesPaidData;
-      record.sessions['Morning'].feesPaid = feesPaidData;
-      record.sessions['Evening'].feesPaid = feesPaidData;
+    // Only update attendance if attendanceData is actually provided and has records, preserving existing data otherwise
+    if (attendanceData && Object.keys(attendanceData).length > 0) {
+      record.sessions[session].attendance = attendanceData;
+      if (session === 'Morning') {
+        record.attendance = attendanceData;
+      }
     }
 
-    if (session === 'Morning') {
-      record.attendance = attendanceData || {};
+    // Always update fees globally across both sessions when provided
+    if (feesPaidData) {
+      record.feesPaid = feesPaidData;
+      if (!record.sessions['Morning']) record.sessions['Morning'] = { attendance: {}, feesPaid: {} };
+      if (!record.sessions['Evening']) record.sessions['Evening'] = { attendance: {}, feesPaid: {} };
+      record.sessions['Morning'].feesPaid = feesPaidData;
+      record.sessions['Evening'].feesPaid = feesPaidData;
     }
 
     record.markModified('sessions');
