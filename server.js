@@ -155,33 +155,43 @@ app.get('/api/attendance', async (req, res) => {
 app.post('/api/attendance', async (req, res) => {
   try {
     const { date, session = 'Morning', attendanceData, feesPaidData } = req.body;
-    if (date) {
-      let record = await Attendance.findOne({ date });
-
-      if (!record) {
-        record = new Attendance({ date, sessions: {} });
-      }
-
-      if (!record.sessions) {
-        record.sessions = {};
-      }
-
-      record.sessions[session] = {
-        attendance: attendanceData || {},
-        feesPaid: feesPaidData || {}
-      };
-
-      if (session === 'Morning') {
-        record.attendance = attendanceData || {};
-        record.feesPaid = feesPaidData || {};
-      }
-
-      await record.save();
-      res.json({ message: `${session} session records saved successfully!` });
-    } else {
-      res.status(400).json({ message: 'Invalid data provided' });
+    if (!date) {
+      return res.status(400).json({ message: 'Date is required' });
     }
+
+    let record = await Attendance.findOne({ date });
+
+    if (!record) {
+      record = new Attendance({ date, sessions: {} });
+    }
+
+    // Ensure sessions map exists
+    if (!record.sessions) {
+      record.sessions = {};
+    }
+
+    // Initialize session sub-document if it doesn't exist
+    if (!record.sessions[session]) {
+      record.sessions[session] = { attendance: {}, feesPaid: {} };
+    }
+
+    // Merge or set the attendance and fee data for this specific session
+    record.sessions[session].attendance = attendanceData || {};
+    record.sessions[session].feesPaid = feesPaidData || {};
+
+    // Keep top-level synchronized if it's Morning for legacy support
+    if (session === 'Morning') {
+      record.attendance = attendanceData || {};
+      record.feesPaid = feesPaidData || {};
+    }
+
+    // Mark sessions modified so Mongoose saves nested object changes correctly
+    record.markModified('sessions');
+    await record.save();
+
+    res.json({ message: `${session} session records saved successfully!` });
   } catch (err) {
+    console.error('Error saving attendance:', err);
     res.status(500).json({ error: err.message });
   }
 });
