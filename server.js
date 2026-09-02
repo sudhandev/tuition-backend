@@ -102,6 +102,18 @@ app.delete('/api/students/:id', async (req, res) => {
   }
 });
 
+// DELETE: Permanently remove a student from both active and archived lists
+app.delete('/api/students/permanent/:id', async (req, res) => {
+  try {
+    const studentId = Number(req.params.id);
+    await Student.deleteOne({ id: studentId });
+    await DeletedStudent.deleteOne({ id: studentId });
+    res.json({ message: 'Student permanently deleted from database!' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 4. PUT: Update an existing student by ID
 app.put('/api/students/:id', async (req, res) => {
   try {
@@ -128,7 +140,6 @@ app.get('/api/attendance', async (req, res) => {
       return res.json({ attendance: {}, feesPaid: {} });
     }
 
-    // If explicit session data exists, return it
     if (session && record.sessions && record.sessions[session]) {
       return res.json({
         attendance: record.sessions[session].attendance || {},
@@ -136,7 +147,6 @@ app.get('/api/attendance', async (req, res) => {
       });
     }
 
-    // Fallback only if Morning is requested and old legacy data exists
     if (session === 'Morning') {
       return res.json({ 
         attendance: record.attendance || {}, 
@@ -144,7 +154,6 @@ app.get('/api/attendance', async (req, res) => {
       });
     }
 
-    // For Evening or any session with no data, return empty to prevent data leaking
     res.json({ attendance: {}, feesPaid: {} });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -165,27 +174,22 @@ app.post('/api/attendance', async (req, res) => {
       record = new Attendance({ date, sessions: {} });
     }
 
-    // Ensure sessions map exists
     if (!record.sessions) {
       record.sessions = {};
     }
 
-    // Initialize session sub-document if it doesn't exist
     if (!record.sessions[session]) {
       record.sessions[session] = { attendance: {}, feesPaid: {} };
     }
 
-    // Merge or set the attendance and fee data for this specific session
     record.sessions[session].attendance = attendanceData || {};
     record.sessions[session].feesPaid = feesPaidData || {};
 
-    // Keep top-level synchronized if it's Morning for legacy support
     if (session === 'Morning') {
       record.attendance = attendanceData || {};
       record.feesPaid = feesPaidData || {};
     }
 
-    // Mark sessions modified so Mongoose saves nested object changes correctly
     record.markModified('sessions');
     await record.save();
 
