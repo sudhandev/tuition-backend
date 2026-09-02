@@ -4,13 +4,12 @@ import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
 
 export default function AttendanceReport() {
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  const API_URL = import.meta.env.VITE_API_URL || 'https://tuition-backend-fwlw.onrender.com';
 
   const [students, setStudents] = useState([]);
   const [allAttendanceData, setAllAttendanceData] = useState({});
   const [loading, setLoading] = useState(true);
 
-  // Fetch both active students and all attendance logs on load
   useEffect(() => {
     Promise.all([
       fetch(`${API_URL}/api/students`).then((res) => res.json()),
@@ -61,11 +60,14 @@ export default function AttendanceReport() {
             {recordedDates.map((date) => {
               const dateRecord = allAttendanceData[date] || {};
               
-              // Determine if records are split by session (Morning/Evening) or flat
-              const sessions = dateRecord.attendance ? { Default: dateRecord } : dateRecord;
+              // Handle both legacy flat structure and new session-mapped structure
+              const sessions = dateRecord.attendance 
+                ? { Morning: dateRecord } 
+                : dateRecord;
 
               return Object.keys(sessions).map((sessionName) => {
-                const dayRecord = sessions[sessionName]?.attendance || {};
+                const sessionPayload = sessions[sessionName] || {};
+                const dayRecord = sessionPayload.attendance || {};
                 const recordedStudentIds = Object.keys(dayRecord);
 
                 if (recordedStudentIds.length === 0) return null;
@@ -81,14 +83,14 @@ export default function AttendanceReport() {
                         <span>Sheet for: {date}</span>
                       </div>
                       
-                      {sessionName !== 'Default' && (
-                        <span className={`inline-flex items-center gap-1 text-xs font-bold px-3 py-1 rounded-xl w-fit ${
-                          sessionName === 'Morning' ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
-                        }`}>
-                          {sessionName === 'Morning' ? <Sun size={14} /> : <Moon size={14} />}
-                          {sessionName} Session
-                        </span>
-                      )}
+                      <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-xl w-fit ${
+                        sessionName === 'Morning' 
+                          ? 'bg-amber-50 text-amber-700 border border-amber-200' 
+                          : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                      }`}>
+                        {sessionName === 'Morning' ? <Sun size={14} /> : <Moon size={14} />}
+                        {sessionName} Session
+                      </span>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
@@ -151,8 +153,7 @@ export default function AttendanceReport() {
               No attendance logs found
             </h3>
             <p className="text-sm text-slate-400 mt-1">
-              Mark and save attendance on your daily tracker to see history
-              here.
+              Mark and save attendance on your daily tracker to see history here.
             </p>
           </div>
         )}
