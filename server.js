@@ -130,7 +130,7 @@ app.put('/api/students/:id', async (req, res) => {
   }
 });
 
-// 5. GET: Fetch attendance & fee records for a specific date and session
+// 5. GET: Fetch attendance (per session) & fee records (shared globally for the date)
 app.get('/api/attendance', async (req, res) => {
   try {
     const { date, session = 'Morning' } = req.query;
@@ -140,27 +140,24 @@ app.get('/api/attendance', async (req, res) => {
       return res.json({ attendance: {}, feesPaid: {} });
     }
 
-    if (session && record.sessions && record.sessions[session]) {
-      return res.json({
-        attendance: record.sessions[session].attendance || {},
-        feesPaid: record.sessions[session].feesPaid || {}
-      });
-    }
+    // Get attendance specifically for the requested session
+    const sessionAttendance = (record.sessions && record.sessions[session] && record.sessions[session].attendance) 
+      ? record.sessions[session].attendance 
+      : (session === 'Morning' ? (record.attendance || {}) : {});
 
-    if (session === 'Morning') {
-      return res.json({ 
-        attendance: record.attendance || {}, 
-        feesPaid: record.feesPaid || {} 
-      });
-    }
+    // Fees are shared globally across the date for both sessions
+    const feesPaid = record.feesPaid || (record.sessions && record.sessions['Morning'] && record.sessions['Morning'].feesPaid) || {};
 
-    res.json({ attendance: {}, feesPaid: {} });
+    res.json({
+      attendance: sessionAttendance,
+      feesPaid: feesPaid
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 6. POST: Save or update attendance records by session
+// 6. POST: Save attendance per session, but store fees globally for the date
 app.post('/api/attendance', async (req, res) => {
   try {
     const { date, session = 'Morning', attendanceData, feesPaidData } = req.body;
@@ -182,12 +179,18 @@ app.post('/api/attendance', async (req, res) => {
       record.sessions[session] = { attendance: {}, feesPaid: {} };
     }
 
+    // Save attendance for this specific session
     record.sessions[session].attendance = attendanceData || {};
-    record.sessions[session].feesPaid = feesPaidData || {};
+
+    // Save fees globally at the date level so Morning & Evening stay permanently in sync
+    if (feesPaidData) {
+      record.feesPaid = feesPaidData;
+      record.sessions['Morning'].feesPaid = feesPaidData;
+      record.sessions['Evening'].feesPaid = feesPaidData;
+    }
 
     if (session === 'Morning') {
       record.attendance = attendanceData || {};
-      record.feesPaid = feesPaidData || {};
     }
 
     record.markModified('sessions');

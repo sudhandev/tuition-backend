@@ -25,43 +25,56 @@ export default function TakeAttendance() {
       });
   }, [API_URL]);
 
+  // Load both Morning and Evening data to find the latest shared fee state for the date
   useEffect(() => {
     setAttendance({});
     setFeesPaidRecords({});
 
-    fetch(`${API_URL}/api/attendance?date=${selectedDate}&session=${session}`)
-      .then((res) => res.json())
-      .then((data) => {
-        const rawAttendance = data && data.attendance ? data.attendance : {};
-        const normalizedAttendance = {};
-        
-        Object.keys(rawAttendance).forEach(id => {
-          const val = rawAttendance[id];
-          if (val && typeof val === 'object' && val.status) {
-            normalizedAttendance[id] = val.status;
-          } else {
-            normalizedAttendance[id] = val;
-          }
-        });
-
-        setAttendance(normalizedAttendance);
-        setFeesPaidRecords(data && data.feesPaid ? data.feesPaid : {});
-      })
-      .catch((err) => {
-        console.error('Error fetching attendance:', err);
-        toast.error('Failed to load attendance records.');
+    Promise.all([
+      fetch(`${API_URL}/api/attendance?date=${selectedDate}&session=Morning`).then(res => res.json()).catch(() => ({})),
+      fetch(`${API_URL}/api/attendance?date=${selectedDate}&session=Evening`).then(res => res.json()).catch(() => ({}))
+    ]).then(([morningData, eveningData]) => {
+      // Pick the correct attendance for the currently selected session
+      const currentData = session === 'Morning' ? morningData : eveningData;
+      const rawAttendance = currentData && currentData.attendance ? currentData.attendance : {};
+      const normalizedAttendance = {};
+      
+      Object.keys(rawAttendance).forEach(id => {
+        const val = rawAttendance[id];
+        if (val && typeof val === 'object' && val.status) {
+          normalizedAttendance[id] = val.status;
+        } else {
+          normalizedAttendance[id] = val;
+        }
       });
+      setAttendance(normalizedAttendance);
+
+      // Merge fee records from both sessions, prioritizing whichever has recorded payments
+      const mergedFees = {
+        ...(eveningData?.feesPaid || {}),
+        ...(morningData?.feesPaid || {})
+      };
+      setFeesPaidRecords(mergedFees);
+    }).catch((err) => {
+      console.error('Error fetching records:', err);
+      toast.error('Failed to load records.');
+    });
   }, [selectedDate, session, API_URL]);
 
-  const toggleAttendance = (id, currentStudentName) => {
+  const toggleSessionAttendee = (id, currentStudentName) => {
     if (isNotToday) return;
-    
+
     const currentStatus = attendance[id];
     let nextStatus;
-    if (!currentStatus) nextStatus = 'Present';
-    else if (currentStatus === 'Present') nextStatus = 'Absent';
-    else nextStatus = undefined; 
     
+    if (!currentStatus) {
+      nextStatus = 'Present';
+    } else if (currentStatus === 'Present') {
+      nextStatus = 'Absent';
+    } else {
+      nextStatus = undefined;
+    }
+
     const updatedAttendance = { ...attendance };
     if (nextStatus) {
       updatedAttendance[id] = nextStatus;
@@ -80,11 +93,11 @@ export default function TakeAttendance() {
     saveDataToServer(updatedAttendance, feesPaidRecords, namesSnapshot);
   };
 
-  const toggleFeeStatus = (id, cycleInfo, currentStudentName) => {
+  const toggleFeeStatus = (id, cycleInfo, currentStudentName, studentFeeAmount) => {
     if (isNotToday) return;
     const currentPaidMonths = feesPaidRecords[id] || 0;
-    const nextPaidMonths = currentPaidMonths + cycleInfo.remainingMonths;
     
+    const nextPaidMonths = currentPaidMonths + 1;
     const updatedFees = { ...feesPaidRecords, [id]: nextPaidMonths };
     setFeesPaidRecords(updatedFees);
 
@@ -94,8 +107,23 @@ export default function TakeAttendance() {
       namesSnapshot[id] = currentStudentName;
     }
 
-    saveDataToServer(attendance, updatedFees, namesSnapshot);
-    toast.success('Fee marked as paid!');
+    // Force exact identical update to BOTH Morning and Evening sessions simultaneously so they stay permanently unified
+    ['Morning', 'Evening'].forEach(targetSession => {
+      const isCurrent = targetSession === session;
+      fetch(`${API_URL}/api/attendance`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          date: selectedDate, 
+          session: targetSession,
+          attendanceData: isCurrent ? attendance : {},
+          feesPaidData: updatedFees,
+          studentNames: namesSnapshot 
+        })
+      }).catch(err => console.error(`Failed to sync fee for ${targetSession}:`, err));
+    });
+
+    toast.success(`Fee paid for 1 month (₹${studentFeeAmount})!`);
   };
 
   const saveDataToServer = (currentAttendance, currentFees, currentNames) => {
@@ -111,10 +139,8 @@ export default function TakeAttendance() {
       })
     })
       .then((res) => {
-        if (res.ok) {
-          toast.success(`${session} attendance saved!`);
-        } else {
-          toast.error('Failed to save attendance.');
+        if (!res.ok) {
+          toast.error('Failed to save records.');
         }
       })
       .catch(err => {
@@ -127,23 +153,18 @@ export default function TakeAttendance() {
     if (!joiningDate) return { isDue: false, overdueMonths: 0, totalDueAmount: 0, remainingMonths: 0 };
     
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth();
 
     const joinDate = new Date(joiningDate);
-    joinDate.setHours(0, 0, 0, 0);
+    const joinYear = joinDate.getFullYear();
+    const joinMonth = joinDate.getMonth();
 
     if (today < joinDate) return { isDue: false, overdueMonths: 0, totalDueAmount: 0, remainingMonths: 0 };
 
-    let totalCyclesPassed = 0;
-    let testDate = new Date(joinDate);
-
-    while (testDate <= today) {
-      totalCyclesPassed++;
-      testDate = new Date(joinDate);
-      testDate.setMonth(joinDate.getMonth() + totalCyclesPassed);
-    }
-
+    const totalCyclesPassed = (currentYear - joinYear) * 12 + (currentMonth - joinMonth) + 1;
     const dueCyclesCount = Math.max(1, totalCyclesPassed);
+    
     const remainingMonths = Math.max(0, dueCyclesCount - (paidMonthsCount || 0));
     const feeAmount = Number(monthlyFee) || 1000;
     const totalDueAmount = remainingMonths * feeAmount;
@@ -153,7 +174,8 @@ export default function TakeAttendance() {
       isDue,
       overdueMonths: dueCyclesCount,
       remainingMonths,
-      totalDueAmount
+      totalDueAmount,
+      monthlyFee: feeAmount
     };
   };
 
@@ -228,14 +250,12 @@ export default function TakeAttendance() {
           </div>
         </div>
 
-        {/* Status Banners */}
         {isNotToday && (
           <div className="mb-6 bg-amber-50 border border-amber-200 text-amber-700 px-4 py-3 rounded-2xl flex items-center gap-2 text-sm font-medium">
             <AlertCircle size={18} /> You are viewing a past or future date. Edits are locked to today.
           </div>
         )}
 
-        {/* Filter Toolbar */}
         <div className="mb-6 flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
             <AlertTriangle size={18} className="text-amber-500" />
@@ -265,7 +285,7 @@ export default function TakeAttendance() {
               const isPending = cycleInfo.isDue;
 
               return (
-                <div key={student.id} className={`bg-white rounded-3xl border shadow-sm p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 ${status === 'Present' ? 'border-emerald-300 bg-emerald-50/10' : isPending ? 'border-amber-300 bg-amber-50/20' : 'border-slate-200'}`}>
+                <div key={student.id} className={`bg-white rounded-3xl border shadow-sm p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 ${status === 'Present' ? 'border-emerald-300 bg-emerald-50/10' : status === 'Absent' ? 'border-red-300 bg-red-50/10' : isPending ? 'border-amber-300 bg-amber-50/20' : 'border-slate-200'}`}>
                   <div className="flex items-center gap-4">
                     <div className="w-12 h-12 rounded-2xl bg-purple-100 flex items-center justify-center text-purple-600 shrink-0">
                       <UserRound size={24} />
@@ -275,7 +295,7 @@ export default function TakeAttendance() {
                         {student.name}
                         {isPending && (
                           <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-bold">
-                            PENDING FEE
+                            PENDING ({cycleInfo.remainingMonths}m due)
                           </span>
                         )}
                       </h3>
@@ -293,34 +313,33 @@ export default function TakeAttendance() {
                   </div>
 
                   <div className="flex flex-wrap items-center gap-3 pt-3 md:pt-0 border-t md:border-t-0 border-slate-100">
-                    {/* Session Attendance Selector Button */}
                     <button
-                      onClick={() => toggleAttendance(student.id, student.name)}
+                      onClick={() => toggleSessionAttendee(student.id, student.name)}
                       disabled={isNotToday}
                       className={`px-4 py-2.5 rounded-xl font-semibold text-xs flex items-center gap-1.5 transition ${
                         isNotToday ? 'opacity-50 cursor-not-allowed bg-slate-100 text-slate-400' :
                         status === 'Present' 
                           ? 'bg-emerald-500 text-white shadow-sm hover:bg-emerald-600' 
                           : status === 'Absent'
-                          ? 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'
+                          ? 'bg-red-500 text-white shadow-sm hover:bg-red-600'
                           : 'bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200'
                       }`}
                     >
-                      {status === 'Present' ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
-                      {status === 'Present' ? `Present in ${session}` : status === 'Absent' ? 'Absent' : 'Mark Attendance'}
+                      {status === 'Present' ? <CheckCircle2 size={16} /> : status === 'Absent' ? <XCircle size={16} /> : null}
+                      {status === 'Present' ? `Present (${session})` : status === 'Absent' ? `Absent (${session})` : 'Mark Attendance'}
                     </button>
 
                     {/* Fee Button */}
                     {isPending ? (
                       <button
-                        onClick={() => toggleFeeStatus(student.id, cycleInfo, student.name)}
+                        onClick={() => toggleFeeStatus(student.id, cycleInfo, student.name, studentFeeAmount)}
                         disabled={isNotToday}
                         className={`px-4 py-2.5 rounded-xl font-semibold text-xs flex items-center gap-1.5 transition ${
                           isNotToday ? 'opacity-50 cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-amber-500 text-white shadow-sm hover:bg-amber-600 animate-pulse'
                         }`}
                       >
                         <IndianRupee size={15} />
-                        Pay ₹{cycleInfo.totalDueAmount} ({cycleInfo.remainingMonths}m left)
+                        Pay ₹{cycleInfo.totalDueAmount} ({cycleInfo.remainingMonths}m)
                       </button>
                     ) : (
                       <button
@@ -336,7 +355,7 @@ export default function TakeAttendance() {
                         }`}
                       >
                         <CheckCircle2 size={15} />
-                        Fee Paid
+                        All Clear
                       </button>
                     )}
                   </div>
