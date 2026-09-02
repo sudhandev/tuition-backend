@@ -15,6 +15,7 @@ import toast from "react-hot-toast";
 
 export default function MainPage() {
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  // const API_URL = 'https://tuition-backend-fwlw.onrender.com';
 
   const [totalStudents, setTotalStudents] = useState(0);
   const [presentCount, setPresentCount] = useState(0);
@@ -135,7 +136,7 @@ export default function MainPage() {
   }, [todayDateStr, API_URL]);
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-purple-50 px-4 sm:px-6 lg:px-8 py-8">
+    <main className="min-h-screen bg-linear-to-br from-slate-50 via-white to-purple-50 px-4 sm:px-6 lg:px-8 py-8">
       <div className="max-w-5xl mx-auto">
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-purple-100 text-purple-600 text-sm font-semibold">

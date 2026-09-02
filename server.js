@@ -33,7 +33,8 @@ const DeletedStudent = mongoose.model('DeletedStudent', studentSchema);
 const attendanceSchema = new mongoose.Schema({
   date: { type: String, required: true, unique: true },
   attendance: Object,
-  feesPaid: Object
+  feesPaid: Object,
+  sessions: { type: Object, default: {} } // Stores { Morning: { attendance, feesPaid }, Evening: { attendance, feesPaid } }
 });
 
 const Attendance = mongoose.model('Attendance', attendanceSchema);
@@ -117,28 +118,66 @@ app.put('/api/students/:id', async (req, res) => {
   }
 });
 
-// 5. GET: Fetch attendance & fee records for a specific date
+// 5. GET: Fetch attendance & fee records for a specific date and session
 app.get('/api/attendance', async (req, res) => {
   try {
-    const { date } = req.query;
+    const { date, session = 'Morning' } = req.query;
     const record = await Attendance.findOne({ date });
-    res.json(record || { attendance: {}, feesPaid: {} });
+    
+    if (!record) {
+      return res.json({ attendance: {}, feesPaid: {} });
+    }
+
+    // If explicit session data exists, return it
+    if (session && record.sessions && record.sessions[session]) {
+      return res.json({
+        attendance: record.sessions[session].attendance || {},
+        feesPaid: record.sessions[session].feesPaid || {}
+      });
+    }
+
+    // Fallback only if Morning is requested and old legacy data exists
+    if (session === 'Morning') {
+      return res.json({ 
+        attendance: record.attendance || {}, 
+        feesPaid: record.feesPaid || {} 
+      });
+    }
+
+    // For Evening or any session with no data, return empty to prevent data leaking
+    res.json({ attendance: {}, feesPaid: {} });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 6. POST: Save or update attendance records
+// 6. POST: Save or update attendance records by session
 app.post('/api/attendance', async (req, res) => {
   try {
-    const { date, attendanceData, feesPaidData } = req.body;
+    const { date, session = 'Morning', attendanceData, feesPaidData } = req.body;
     if (date) {
-      await Attendance.findOneAndUpdate(
-        { date },
-        { attendance: attendanceData || {}, feesPaid: feesPaidData || {} },
-        { upsert: true, new: true }
-      );
-      res.json({ message: 'Records saved successfully!' });
+      let record = await Attendance.findOne({ date });
+
+      if (!record) {
+        record = new Attendance({ date, sessions: {} });
+      }
+
+      if (!record.sessions) {
+        record.sessions = {};
+      }
+
+      record.sessions[session] = {
+        attendance: attendanceData || {},
+        feesPaid: feesPaidData || {}
+      };
+
+      if (session === 'Morning') {
+        record.attendance = attendanceData || {};
+        record.feesPaid = feesPaidData || {};
+      }
+
+      await record.save();
+      res.json({ message: `${session} session records saved successfully!` });
     } else {
       res.status(400).json({ message: 'Invalid data provided' });
     }
@@ -147,14 +186,22 @@ app.post('/api/attendance', async (req, res) => {
   }
 });
 
-// 7. GET: Fetch all attendance records across all dates
+// 7. GET: Fetch all attendance records across all dates and sessions for reports
 app.get('/api/all-attendance', async (req, res) => {
   try {
     const records = await Attendance.find();
     const formattedRecords = {};
+    
     records.forEach(r => {
-      formattedRecords[r.date] = { attendance: r.attendance, feesPaid: r.feesPaid };
+      if (r.sessions && Object.keys(r.sessions).length > 0) {
+        formattedRecords[r.date] = r.sessions;
+      } else {
+        formattedRecords[r.date] = {
+          Morning: { attendance: r.attendance, feesPaid: r.feesPaid }
+        };
+      }
     });
+
     res.json(formattedRecords);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -256,7 +303,6 @@ app.post('/api/notes', async (req, res) => {
   }
 });
 
-// FIXED: Using findByIdAndDelete to accept the MongoDB string _id from the frontend
 app.delete('/api/notes/:id', async (req, res) => {
   try {
     const result = await Note.findByIdAndDelete(req.params.id);
