@@ -167,7 +167,7 @@ app.get('/api/attendance', async (req, res) => {
   }
 });
 
-// 6. POST: Save attendance and fees safely (Auto-deletes record if completely empty)
+// 6. POST: Save attendance and fees safely (Fully synchronized for Morning session and root fields)
 app.post('/api/attendance', async (req, res) => {
   try {
     const { date, session = 'Morning', attendanceData, feesPaidData } = req.body;
@@ -180,15 +180,16 @@ app.post('/api/attendance', async (req, res) => {
     const isAttendanceEmpty = !attendanceData || Object.keys(attendanceData).length === 0;
     const isFeesEmpty = !feesPaidData || Object.keys(feesPaidData).length === 0;
 
-    // If completely empty for this session/day, prune it or delete document
     if (isAttendanceEmpty && isFeesEmpty) {
       if (record) {
         if (record.sessions && record.sessions[session]) {
           delete record.sessions[session];
           record.markModified('sessions');
         }
+        if (session === 'Morning') {
+          record.attendance = {};
+        }
         
-        // If no sessions remain and top-level data is also empty, delete document entirely
         const hasRemainingSessions = record.sessions && Object.keys(record.sessions).length > 0;
         const hasTopLevelAttendance = record.attendance && Object.keys(record.attendance).length > 0;
         const hasTopLevelFees = record.feesPaid && Object.keys(record.feesPaid).length > 0;
@@ -222,6 +223,9 @@ app.post('/api/attendance', async (req, res) => {
       }
     } else {
       record.sessions[session].attendance = {};
+      if (session === 'Morning') {
+        record.attendance = {};
+      }
     }
 
     if (feesPaidData) {
@@ -335,7 +339,7 @@ app.delete('/api/fees/:id', async (req, res) => {
   }
 });
 
-// --- KEEP NOTES ENDPOINTS (Fixed for MongoDB ObjectId & Numeric ID support) ---
+// --- KEEP NOTES ENDPOINTS ---
 
 app.get('/api/notes', async (req, res) => {
   try {
