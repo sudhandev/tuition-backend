@@ -13,10 +13,10 @@ export default function FineTracker() {
   // Form State
   const [selectedStudent, setSelectedStudent] = useState('');
   const [sessionType, setSessionType] = useState('Morning');
-  const [fineAmount, setFineAmount] = useState('50');
+  const [fineAmount, setFineAmount] = useState('5');
   const [fineDate, setFineDate] = useState(new Date().toISOString().slice(0, 10));
   const [reason, setReason] = useState('Uninformed Leave');
-  const [fineStatus, setFineStatus] = useState('Pending'); // 'Pending' or 'Paid'
+  const [fineStatus, setFineStatus] = useState('Pending');
 
   // Edit State
   const [editingId, setEditingId] = useState(null);
@@ -191,19 +191,24 @@ export default function FineTracker() {
           <form onSubmit={handleSaveFine} className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <div>
               <label className="block text-xs font-bold text-slate-600 mb-2">Select Student</label>
-              <select
-                value={selectedStudent}
-                onChange={(e) => setSelectedStudent(e.target.value)}
-                className="w-full bg-slate-50/80 border border-slate-200 px-4 py-3 rounded-2xl text-xs font-semibold text-slate-700 outline-none focus:border-purple-500 focus:bg-white transition"
-                required
-              >
-                <option value="">-- Choose Student --</option>
-                {students.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} ({s.studentClass || 'Class N/A'})
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <select
+                  value={selectedStudent}
+                  onChange={(e) => setSelectedStudent(e.target.value)}
+                  className="w-full bg-slate-50/80 border border-slate-200 px-4 py-3 rounded-2xl text-xs font-semibold text-slate-700 outline-none focus:border-purple-500 focus:bg-white transition appearance-none cursor-pointer"
+                  required
+                >
+                  <option value="" disabled className="text-slate-400">-- Choose Student --</option>
+                  {students.map((s) => (
+                    <option key={s.id} value={s.id} className="text-slate-700 py-1">
+                      {s.name} ({s.studentClass || 'Class N/A'})
+                    </option>
+                  ))}
+                </select>
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                  ▼
+                </div>
+              </div>
             </div>
 
             <div>
@@ -253,7 +258,7 @@ export default function FineTracker() {
               />
             </div>
 
-            <div>
+            {/* <div>
               <label className="block text-xs font-bold text-slate-600 mb-2">Payment Status</label>
               <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200">
                 <button
@@ -275,7 +280,7 @@ export default function FineTracker() {
                   <CheckCircle2 size={14} /> Paid
                 </button>
               </div>
-            </div>
+            </div> */}
 
             <div>
               <label className="block text-xs font-bold text-slate-600 mb-2">Reason / Infraction</label>
@@ -357,23 +362,23 @@ export default function FineTracker() {
                     </div>
 
                     <div className="flex items-center justify-between sm:justify-end gap-4 border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-200/60">
-                      <div className="text-right">
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => handleToggleStatus(item)}
+                          className={`text-xs font-bold px-3 py-1.5 rounded-xl border transition flex items-center gap-1.5 cursor-pointer shadow-xs ${
+                            isPaid 
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' 
+                              : 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100'
+                          }`}
+                          title="Click to toggle payment status"
+                        >
+                          {isPaid ? <CheckCircle2 size={14} /> : <Clock size={14} />}
+                          <span>{isPaid ? 'Paid' : 'Pending'}</span>
+                        </button>
+
                         <span className="text-lg font-black text-slate-800">
                           ₹{item.amount}
                         </span>
-                        <div>
-                          <button
-                            onClick={() => handleToggleStatus(item)}
-                            className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border transition cursor-pointer ${
-                              isPaid 
-                                ? 'bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-200' 
-                                : 'bg-red-100 text-red-700 border-red-200 hover:bg-red-200'
-                            }`}
-                            title="Click to toggle Paid/Pending"
-                          >
-                            {isPaid ? '✓ Paid' : '⏳ Pending'}
-                          </button>
-                        </div>
                       </div>
 
                       <div className="flex items-center gap-1.5">

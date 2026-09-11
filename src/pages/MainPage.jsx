@@ -122,13 +122,25 @@ export default function MainPage() {
       let paid = 0;
       let pending = 0;
       const studentPaidMonthsMap = {};
+      const sortedDates = Object.keys(allAttendance).sort().reverse();
 
-      Object.values(allAttendance).forEach((record) => {
-        const feesMap = record?.feesPaid || record?.Morning?.feesPaid || record?.Evening?.feesPaid || {};
-        Object.keys(feesMap).forEach((studentId) => {
-          const count = feesMap[studentId] || 0;
-          if (count > (studentPaidMonthsMap[studentId] || 0)) {
-            studentPaidMonthsMap[studentId] = count;
+      sortedDates.forEach((dateKey) => {
+        const record = allAttendance[dateKey];
+        const sources = [
+          record?.feesPaid,
+          record?.Morning?.feesPaid,
+          record?.Evening?.feesPaid,
+          record?.sessions?.Morning?.feesPaid,
+          record?.sessions?.Evening?.feesPaid
+        ];
+
+        sources.forEach((feesMap) => {
+          if (feesMap && typeof feesMap === 'object') {
+            Object.keys(feesMap).forEach((studentId) => {
+              if (studentPaidMonthsMap[studentId] === undefined) {
+                studentPaidMonthsMap[studentId] = feesMap[studentId] || 0;
+              }
+            });
           }
         });
       });

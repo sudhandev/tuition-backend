@@ -43,10 +43,10 @@ export default function AttendanceReport() {
         <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <Link
-              to="/attendance"
+              to="/"
               className="inline-flex items-center gap-1.5 text-xs font-bold text-purple-600 bg-purple-50 px-3 py-1.5 rounded-xl mb-3 hover:bg-purple-100 transition"
             >
-              <ArrowLeft size={16} /> Back to Daily Tracker
+              <ArrowLeft size={16} /> Back to Home
             </Link>
             <h1 className="text-2xl sm:text-3xl font-bold text-slate-800">
               Complete Attendance History

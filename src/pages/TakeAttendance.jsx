@@ -25,56 +25,34 @@ export default function TakeAttendance() {
       });
   }, [API_URL]);
 
-  // Load both Morning and Evening data to find the latest shared fee state for the date
+  // Load attendance and fee records strictly for the selected date and session without historical bleed
   useEffect(() => {
     setAttendance({});
     setFeesPaidRecords({});
 
-    Promise.all([
-      fetch(`${API_URL}/api/attendance?date=${selectedDate}&session=${session}`).then(res => res.json()).catch(() => ({})),
-      fetch(`${API_URL}/api/all-attendance`).then(res => res.json()).catch(() => ({}))
-    ]).then(([sessionData, allAttendanceData]) => {
-      const rawAttendance = sessionData && sessionData.attendance ? sessionData.attendance : {};
-      const normalizedAttendance = {};
-      
-      Object.keys(rawAttendance).forEach(id => {
-        const val = rawAttendance[id];
-        if (val && typeof val === 'object' && val.status) {
-          normalizedAttendance[id] = val.status;
-        } else {
-          normalizedAttendance[id] = val;
-        }
-      });
-      setAttendance(normalizedAttendance);
-
-      // Robustly extract fee counts across all possible backend structures (Morning, Evening, root, and sessions)
-      const studentPaidMonthsMap = {};
-      Object.values(allAttendanceData || {}).forEach((record) => {
-        const sources = [
-          record?.feesPaid,
-          record?.Morning?.feesPaid,
-          record?.Evening?.feesPaid,
-          record?.sessions?.Morning?.feesPaid,
-          record?.sessions?.Evening?.feesPaid
-        ];
-
-        sources.forEach((feesMap) => {
-          if (feesMap && typeof feesMap === 'object') {
-            Object.keys(feesMap).forEach((studentId) => {
-              const count = feesMap[studentId] || 0;
-              if (count > (studentPaidMonthsMap[studentId] || 0)) {
-                studentPaidMonthsMap[studentId] = count;
-              }
-            });
+    fetch(`${API_URL}/api/attendance?date=${selectedDate}&session=${session}`)
+      .then(res => res.json())
+      .then(sessionData => {
+        const rawAttendance = sessionData && sessionData.attendance ? sessionData.attendance : {};
+        const normalizedAttendance = {};
+        
+        Object.keys(rawAttendance).forEach(id => {
+          const val = rawAttendance[id];
+          if (val && typeof val === 'object' && val.status) {
+            normalizedAttendance[id] = val.status;
+          } else {
+            normalizedAttendance[id] = val;
           }
         });
-      });
+        setAttendance(normalizedAttendance);
 
-      setFeesPaidRecords(studentPaidMonthsMap);
-    }).catch((err) => {
-      console.error('Error fetching records:', err);
-      toast.error('Failed to load records.');
-    });
+        const feesMap = sessionData && sessionData.feesPaid ? sessionData.feesPaid : {};
+        setFeesPaidRecords(feesMap);
+      })
+      .catch((err) => {
+        console.error('Error fetching records:', err);
+        toast.error('Failed to load records.');
+      });
   }, [selectedDate, session, API_URL]);
 
   const toggleSessionAttendee = (id, currentStudentName) => {
@@ -113,7 +91,6 @@ export default function TakeAttendance() {
     if (isNotToday) return;
     const currentPaidMonths = feesPaidRecords[id] || 0;
     
-    // Increment paid months by the exact number of remaining (due) months to clear all dues at once
     const nextPaidMonths = currentPaidMonths + cycleInfo.remainingMonths;
     const updatedFees = { ...feesPaidRecords, [id]: nextPaidMonths };
     setFeesPaidRecords(updatedFees);
@@ -124,22 +101,27 @@ export default function TakeAttendance() {
       namesSnapshot[id] = currentStudentName;
     }
 
-    ['Morning', 'Evening'].forEach(targetSession => {
-      const isCurrent = targetSession === session;
-      fetch(`${API_URL}/api/attendance`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          date: selectedDate, 
-          session: targetSession,
-          attendanceData: isCurrent ? attendance : {},
-          feesPaidData: updatedFees,
-          studentNames: namesSnapshot 
-        })
-      }).catch(err => console.error(`Failed to sync fee for ${targetSession}:`, err));
-    });
-
+    saveDataToServer(attendance, updatedFees, namesSnapshot);
     toast.success(`Fee paid (₹${cycleInfo.totalDueAmount})!`);
+  };
+
+  const handleUndoFee = (id, currentStudentName) => {
+    if (isNotToday) return;
+    
+    const currentPaid = feesPaidRecords[id] || 0;
+    const undoMonths = Math.max(0, currentPaid - 1);
+    
+    const updatedFees = { ...feesPaidRecords, [id]: undoMonths };
+    setFeesPaidRecords(updatedFees);
+
+    const namesSnapshot = {};
+    students.forEach(s => { namesSnapshot[s.id] = s.name; });
+    if (currentStudentName && !namesSnapshot[id]) {
+      namesSnapshot[id] = currentStudentName;
+    }
+
+    saveDataToServer(attendance, updatedFees, namesSnapshot);
+    toast.success("Payment undone (Reverted to Pending).");
   };
 
   const saveDataToServer = (currentAttendance, currentFees, currentNames) => {
@@ -168,23 +150,23 @@ export default function TakeAttendance() {
   const checkFeeCycle = (joiningDate, monthlyFee = 0, paidMonthsCount = 0) => {
     if (!joiningDate) return { isDue: false, hasStarted: false, remainingMonths: 0, totalDueAmount: 0 };
     
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const selDateObj = new Date(selectedDate);
+    const joinDateObj = new Date(joiningDate);
 
-    const joinDate = new Date(joiningDate);
-    joinDate.setHours(0, 0, 0, 0);
-
-    if (today < joinDate) {
+    if (selDateObj < joinDateObj) {
       return { isDue: false, hasStarted: false, remainingMonths: 0, totalDueAmount: 0 };
     }
 
-    let totalCyclesPassed = 0;
-    let testDate = new Date(joinDate);
+    let yearsDiff = selDateObj.getFullYear() - joinDateObj.getFullYear();
+    let monthsDiff = selDateObj.getMonth() - joinDateObj.getMonth();
+    
+    // Include the joining month itself (+1)
+    let totalCyclesPassed = (yearsDiff * 12) + monthsDiff + 1;
 
-    while (testDate <= today) {
-      totalCyclesPassed++;
-      testDate = new Date(joinDate);
-      testDate.setMonth(joinDate.getMonth() + totalCyclesPassed);
+    // If the selected date's day hasn't reached the joining day yet this month, 
+    // the current month's fee cycle is not due yet.
+    if (selDateObj.getDate() < joinDateObj.getDate()) {
+      totalCyclesPassed = Math.max(0, totalCyclesPassed - 1);
     }
 
     const remainingMonths = Math.max(0, totalCyclesPassed - (paidMonthsCount || 0));
@@ -364,18 +346,14 @@ export default function TakeAttendance() {
                     ) : (
                       <button
                         disabled={isNotToday}
-                        onClick={() => {
-                          if (isNotToday) return;
-                          const updatedFees = { ...feesPaidRecords, [student.id]: 0 };
-                          setFeesPaidRecords(updatedFees);
-                          saveDataToServer(attendance, updatedFees);
-                        }}
+                        onClick={() => handleUndoFee(student.id, student.name)}
                         className={`px-4 py-2.5 rounded-xl font-semibold text-xs flex items-center gap-1.5 transition ${
-                          isNotToday ? 'opacity-50 cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          isNotToday ? 'opacity-50 cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200'
                         }`}
+                        title="Click to undo fee payment"
                       >
                         <CheckCircle2 size={15} />
-                        All Clear
+                        Paid (Click to Undo)
                       </button>
                     )}
                   </div>

@@ -307,7 +307,7 @@ app.delete('/api/fees/:id', async (req, res) => {
   }
 });
 
-// --- KEEP NOTES ENDPOINTS ---
+// --- KEEP NOTES ENDPOINTS (Fixed for numeric IDs and Edit/Update support) ---
 
 app.get('/api/notes', async (req, res) => {
   try {
@@ -331,10 +331,29 @@ app.post('/api/notes', async (req, res) => {
   }
 });
 
+app.put('/api/notes/:id', async (req, res) => {
+  try {
+    const noteId = Number(req.params.id);
+    const updatedNote = await Note.findOneAndUpdate(
+      { id: isNaN(noteId) ? req.params.id : noteId },
+      { title: req.body.title, content: req.body.content },
+      { new: true }
+    );
+    if (updatedNote) {
+      res.json(updatedNote);
+    } else {
+      res.status(404).json({ message: 'Note not found' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.delete('/api/notes/:id', async (req, res) => {
   try {
-    const result = await Note.findByIdAndDelete(req.params.id);
-    if (result) {
+    const noteId = Number(req.params.id);
+    const result = await Note.deleteOne({ id: isNaN(noteId) ? req.params.id : noteId });
+    if (result.deletedCount > 0) {
       res.json({ message: 'Note deleted successfully!' });
     } else {
       res.status(404).json({ message: 'Note not found' });

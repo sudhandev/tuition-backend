@@ -32,7 +32,7 @@ export default function FeesPending() {
       testDate.setMonth(joinDate.getMonth() + totalCyclesPassed);
     }
 
-    const remainingMonths = Math.max(0, totalCyclesPassed - (paidMonthsCount || 0));
+    const remainingMonths = Math.max(0, totalCyclesPassed - (Number(paidMonthsCount) || 0));
     const feeAmount = Number(monthlyFee) || 1000;
     const totalDueAmount = remainingMonths * feeAmount;
 
@@ -59,13 +59,27 @@ export default function FeesPending() {
       });
   }, [API_URL]);
 
+  // Extract the true latest fee state by sorting attendance record dates newest first
   const studentPaidMonthsMap = {};
-  Object.values(attendanceRecords).forEach((record) => {
-    const feesMap = record?.feesPaid || record?.Morning?.feesPaid || record?.Evening?.feesPaid || {};
-    Object.keys(feesMap).forEach((studentId) => {
-      const count = feesMap[studentId] || 0;
-      if (count > (studentPaidMonthsMap[studentId] || 0)) {
-        studentPaidMonthsMap[studentId] = count;
+  const sortedDates = Object.keys(attendanceRecords).sort().reverse();
+
+  sortedDates.forEach((dateKey) => {
+    const record = attendanceRecords[dateKey];
+    const sources = [
+      record?.feesPaid,
+      record?.Morning?.feesPaid,
+      record?.Evening?.feesPaid,
+      record?.sessions?.Morning?.feesPaid,
+      record?.sessions?.Evening?.feesPaid
+    ];
+
+    sources.forEach((feesMap) => {
+      if (feesMap && typeof feesMap === 'object') {
+        Object.keys(feesMap).forEach((studentId) => {
+          if (studentPaidMonthsMap[studentId] === undefined) {
+            studentPaidMonthsMap[studentId] = feesMap[studentId] || 0;
+          }
+        });
       }
     });
   });
@@ -109,7 +123,7 @@ export default function FeesPending() {
 
         {filteredStudents.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {filteredStudents.map((student) => {
+            {filteredStudents.main ? null : filteredStudents.map((student) => {
               const paidMonths = studentPaidMonthsMap[student.id] || 0;
               const cycleInfo = checkFeeCycle(student.joiningDate, student.fees, paidMonths);
 
