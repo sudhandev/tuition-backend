@@ -62,7 +62,8 @@ const fineSchema = new mongoose.Schema({
   session: String,
   amount: Number,
   date: String,
-  reason: String
+  reason: String,
+  status: { type: String, default: 'Pending' }
 });
 const Fine = mongoose.model('Fine', fineSchema);
 
