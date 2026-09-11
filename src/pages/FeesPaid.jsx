@@ -9,7 +9,7 @@ export default function FeesPaid() {
   const [students, setStudents] = useState([]);
   const [attendanceRecords, setAttendanceRecords] = useState({});
   const [searchQuery, setSearchQuery] = useState('');
-  const [cycleFilter, setCycleFilter] = useState('all'); // 'all', 'current_cycle', 'advance'
+  const [cycleFilter, setCycleFilter] = useState('all'); // 'all', 'current_cycle'
 
   const checkFeeCycle = (joiningDate, monthlyFee = 0, paidMonthsCount = 0) => {
     if (!joiningDate) return { isDue: false, hasStarted: false, remainingMonths: 0, totalDueAmount: 0, expectedCycles: 0 };
@@ -79,7 +79,6 @@ export default function FeesPaid() {
     sources.forEach((feesMap) => {
       if (feesMap && typeof feesMap === 'object') {
         Object.keys(feesMap).forEach((studentId) => {
-          // Only capture the most recent record for each student (newest date takes precedence)
           if (studentPaidMonthsMap[studentId] === undefined) {
             studentPaidMonthsMap[studentId] = feesMap[studentId] || 0;
           }
@@ -95,7 +94,7 @@ export default function FeesPaid() {
     return cycleInfo.hasStarted && !cycleInfo.isDue;
   });
 
-  // Apply accurate sub-filters for Current Month vs Advance vs All
+  // Apply sub-filter for All Paid vs Current Month Cleared
   const filteredStudents = paidStudents.filter((student) => {
     const paidMonths = studentPaidMonthsMap[student.id] || 0;
     
@@ -109,7 +108,6 @@ export default function FeesPaid() {
     const isCurrentMonthCleared = paidMonths === monthsSinceJoin || (paidMonths >= monthsSinceJoin && !isAdvance);
 
     if (cycleFilter === 'current_cycle' && !isCurrentMonthCleared) return false;
-    if (cycleFilter === 'advance' && !isAdvance) return false;
 
     return student.name.toLowerCase().includes(searchQuery.toLowerCase());
   });
@@ -143,7 +141,7 @@ export default function FeesPaid() {
             />
           </div>
 
-          {/* Filter System Pills */}
+          {/* Filter System Pills (Advance Filter Removed) */}
           <div className="flex items-center gap-2 overflow-x-auto pb-1">
             <span className="text-xs font-bold text-slate-400 flex items-center gap-1 shrink-0 px-1">
               <Filter size={14} /> Filter By:
@@ -167,16 +165,6 @@ export default function FeesPaid() {
               }`}
             >
               Current Month Cleared
-            </button>
-            <button
-              onClick={() => setCycleFilter('advance')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition shrink-0 ${
-                cycleFilter === 'advance' 
-                  ? 'bg-green-600 text-white shadow-sm' 
-                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-              }`}
-            >
-              Advance Paid
             </button>
           </div>
         </div>
@@ -208,8 +196,8 @@ export default function FeesPaid() {
                       <IndianRupee size={16} />
                       {student.fees || 1000}
                     </span>
-                    <span className={`text-[10px] px-2 py-1 rounded-full font-semibold uppercase ${isAdvance ? 'bg-purple-50 text-purple-600' : 'bg-green-50 text-green-600'}`}>
-                      {isAdvance ? `Advance (${paidMonths}m paid)` : 'Current Month Cleared'}
+                    <span className="text-[10px] px-2 py-1 rounded-full font-semibold uppercase bg-green-50 text-green-600">
+                      {isAdvance ? `Paid (${paidMonths}m total)` : 'Current Month Cleared'}
                     </span>
                   </div>
                 </div>
