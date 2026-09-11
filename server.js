@@ -307,11 +307,11 @@ app.delete('/api/fees/:id', async (req, res) => {
   }
 });
 
-// --- KEEP NOTES ENDPOINTS (Fixed for numeric IDs and Edit/Update support) ---
+// --- KEEP NOTES ENDPOINTS (Fixed for MongoDB ObjectId & Numeric ID support) ---
 
 app.get('/api/notes', async (req, res) => {
   try {
-    const notes = await Note.find().sort({ id: -1 });
+    const notes = await Note.find().sort({ _id: -1 });
     res.json(notes);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -333,12 +333,23 @@ app.post('/api/notes', async (req, res) => {
 
 app.put('/api/notes/:id', async (req, res) => {
   try {
-    const noteId = Number(req.params.id);
-    const updatedNote = await Note.findOneAndUpdate(
-      { id: isNaN(noteId) ? req.params.id : noteId },
-      { title: req.body.title, content: req.body.content },
-      { new: true }
-    );
+    const paramId = req.params.id;
+    let updatedNote;
+
+    if (mongoose.Types.ObjectId.isValid(paramId)) {
+      updatedNote = await Note.findByIdAndUpdate(
+        paramId,
+        { title: req.body.title, content: req.body.content },
+        { new: true }
+      );
+    } else {
+      updatedNote = await Note.findOneAndUpdate(
+        { id: Number(paramId) },
+        { title: req.body.title, content: req.body.content },
+        { new: true }
+      );
+    }
+
     if (updatedNote) {
       res.json(updatedNote);
     } else {
@@ -351,9 +362,16 @@ app.put('/api/notes/:id', async (req, res) => {
 
 app.delete('/api/notes/:id', async (req, res) => {
   try {
-    const noteId = Number(req.params.id);
-    const result = await Note.deleteOne({ id: isNaN(noteId) ? req.params.id : noteId });
-    if (result.deletedCount > 0) {
+    const paramId = req.params.id;
+    let result;
+
+    if (mongoose.Types.ObjectId.isValid(paramId)) {
+      result = await Note.findByIdAndDelete(paramId);
+    } else {
+      result = await Note.deleteOne({ id: Number(paramId) });
+    }
+
+    if (result) {
       res.json({ message: 'Note deleted successfully!' });
     } else {
       res.status(404).json({ message: 'Note not found' });
