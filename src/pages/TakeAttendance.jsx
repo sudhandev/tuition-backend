@@ -31,12 +31,10 @@ export default function TakeAttendance() {
     setFeesPaidRecords({});
 
     Promise.all([
-      fetch(`${API_URL}/api/attendance?date=${selectedDate}&session=Morning`).then(res => res.json()).catch(() => ({})),
-      fetch(`${API_URL}/api/attendance?date=${selectedDate}&session=Evening`).then(res => res.json()).catch(() => ({}))
-    ]).then(([morningData, eveningData]) => {
-      // Pick the correct attendance for the currently selected session
-      const currentData = session === 'Morning' ? morningData : eveningData;
-      const rawAttendance = currentData && currentData.attendance ? currentData.attendance : {};
+      fetch(`${API_URL}/api/attendance?date=${selectedDate}&session=${session}`).then(res => res.json()).catch(() => ({})),
+      fetch(`${API_URL}/api/all-attendance`).then(res => res.json()).catch(() => ({}))
+    ]).then(([sessionData, allAttendanceData]) => {
+      const rawAttendance = sessionData && sessionData.attendance ? sessionData.attendance : {};
       const normalizedAttendance = {};
       
       Object.keys(rawAttendance).forEach(id => {
@@ -49,12 +47,30 @@ export default function TakeAttendance() {
       });
       setAttendance(normalizedAttendance);
 
-      // Merge fee records from both sessions, prioritizing whichever has recorded payments
-      const mergedFees = {
-        ...(eveningData?.feesPaid || {}),
-        ...(morningData?.feesPaid || {})
-      };
-      setFeesPaidRecords(mergedFees);
+      // Robustly extract fee counts across all possible backend structures (Morning, Evening, root, and sessions)
+      const studentPaidMonthsMap = {};
+      Object.values(allAttendanceData || {}).forEach((record) => {
+        const sources = [
+          record?.feesPaid,
+          record?.Morning?.feesPaid,
+          record?.Evening?.feesPaid,
+          record?.sessions?.Morning?.feesPaid,
+          record?.sessions?.Evening?.feesPaid
+        ];
+
+        sources.forEach((feesMap) => {
+          if (feesMap && typeof feesMap === 'object') {
+            Object.keys(feesMap).forEach((studentId) => {
+              const count = feesMap[studentId] || 0;
+              if (count > (studentPaidMonthsMap[studentId] || 0)) {
+                studentPaidMonthsMap[studentId] = count;
+              }
+            });
+          }
+        });
+      });
+
+      setFeesPaidRecords(studentPaidMonthsMap);
     }).catch((err) => {
       console.error('Error fetching records:', err);
       toast.error('Failed to load records.');
@@ -97,7 +113,8 @@ export default function TakeAttendance() {
     if (isNotToday) return;
     const currentPaidMonths = feesPaidRecords[id] || 0;
     
-    const nextPaidMonths = currentPaidMonths + 1;
+    // Increment paid months by the exact number of remaining (due) months to clear all dues at once
+    const nextPaidMonths = currentPaidMonths + cycleInfo.remainingMonths;
     const updatedFees = { ...feesPaidRecords, [id]: nextPaidMonths };
     setFeesPaidRecords(updatedFees);
 
@@ -107,7 +124,6 @@ export default function TakeAttendance() {
       namesSnapshot[id] = currentStudentName;
     }
 
-    // Force exact identical update to BOTH Morning and Evening sessions simultaneously so they stay permanently unified
     ['Morning', 'Evening'].forEach(targetSession => {
       const isCurrent = targetSession === session;
       fetch(`${API_URL}/api/attendance`, {
@@ -123,7 +139,7 @@ export default function TakeAttendance() {
       }).catch(err => console.error(`Failed to sync fee for ${targetSession}:`, err));
     });
 
-    toast.success(`Fee paid for 1 month (₹${studentFeeAmount})!`);
+    toast.success(`Fee paid (₹${cycleInfo.totalDueAmount})!`);
   };
 
   const saveDataToServer = (currentAttendance, currentFees, currentNames) => {
@@ -150,32 +166,36 @@ export default function TakeAttendance() {
   };
 
   const checkFeeCycle = (joiningDate, monthlyFee = 0, paidMonthsCount = 0) => {
-    if (!joiningDate) return { isDue: false, overdueMonths: 0, totalDueAmount: 0, remainingMonths: 0 };
+    if (!joiningDate) return { isDue: false, hasStarted: false, remainingMonths: 0, totalDueAmount: 0 };
     
     const today = new Date();
-    const currentYear = today.getFullYear();
-    const currentMonth = today.getMonth();
+    today.setHours(0, 0, 0, 0);
 
     const joinDate = new Date(joiningDate);
-    const joinYear = joinDate.getFullYear();
-    const joinMonth = joinDate.getMonth();
+    joinDate.setHours(0, 0, 0, 0);
 
-    if (today < joinDate) return { isDue: false, overdueMonths: 0, totalDueAmount: 0, remainingMonths: 0 };
+    if (today < joinDate) {
+      return { isDue: false, hasStarted: false, remainingMonths: 0, totalDueAmount: 0 };
+    }
 
-    const totalCyclesPassed = (currentYear - joinYear) * 12 + (currentMonth - joinMonth) + 1;
-    const dueCyclesCount = Math.max(1, totalCyclesPassed);
-    
-    const remainingMonths = Math.max(0, dueCyclesCount - (paidMonthsCount || 0));
+    let totalCyclesPassed = 0;
+    let testDate = new Date(joinDate);
+
+    while (testDate <= today) {
+      totalCyclesPassed++;
+      testDate = new Date(joinDate);
+      testDate.setMonth(joinDate.getMonth() + totalCyclesPassed);
+    }
+
+    const remainingMonths = Math.max(0, totalCyclesPassed - (paidMonthsCount || 0));
     const feeAmount = Number(monthlyFee) || 1000;
     const totalDueAmount = remainingMonths * feeAmount;
-    const isDue = remainingMonths > 0;
 
-    return {
-      isDue,
-      overdueMonths: dueCyclesCount,
-      remainingMonths,
-      totalDueAmount,
-      monthlyFee: feeAmount
+    return { 
+      isDue: remainingMonths > 0, 
+      hasStarted: true,
+      remainingMonths, 
+      totalDueAmount 
     };
   };
 
@@ -189,7 +209,7 @@ export default function TakeAttendance() {
 
     const paidMonths = feesPaidRecords[student.id] || 0;
     const cycleInfo = checkFeeCycle(student.joiningDate, student.fees, paidMonths);
-    const isPending = cycleInfo.isDue;
+    const isPending = cycleInfo.hasStarted && cycleInfo.isDue;
 
     if (filterPendingOnly) {
       return isPending;
@@ -282,7 +302,7 @@ export default function TakeAttendance() {
               const paidMonths = feesPaidRecords[student.id] || 0;
               const studentFeeAmount = Number(student.fees) || 1000;
               const cycleInfo = checkFeeCycle(student.joiningDate, studentFeeAmount, paidMonths);
-              const isPending = cycleInfo.isDue;
+              const isPending = cycleInfo.hasStarted && cycleInfo.isDue;
 
               return (
                 <div key={student.id} className={`bg-white rounded-3xl border shadow-sm p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 ${status === 'Present' ? 'border-emerald-300 bg-emerald-50/10' : status === 'Absent' ? 'border-red-300 bg-red-50/10' : isPending ? 'border-amber-300 bg-amber-50/20' : 'border-slate-200'}`}>

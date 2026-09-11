@@ -16,6 +16,7 @@ import WishThem from './pages/WishThem';
 import FeesPaid from './pages/FeesPaid';
 import FeesPending from './pages/FeesPending';
 import Notes from './pages/Notes';
+import FineTracker from './pages/FineTracker';
 
 export default function App() {
   const [students, setStudents] = useState([]);
@@ -60,6 +61,7 @@ export default function App() {
             <Route path="/wish-them" element={<WishThem />} />
             <Route path='/fees-paid' element={<FeesPaid />} />
             <Route path='/fees-pending' element={<FeesPending />} />
+            <Route path="/fines" element={<FineTracker />} />
             <Route path="/notes" element={<Notes />} />
           </Routes>
         </div>

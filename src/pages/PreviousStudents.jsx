@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import { UserX, Calendar, ArrowLeft, UserCheck } from 'lucide-react';
+import { UserX, Calendar, ArrowLeft, UserCheck, Trash2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
 export default function PreviousStudents() {
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  const API_URL = import.meta.env.VITE_API_URL || 'https://tuition-backend-fwlw.onrender.com';
 
   const [deletedStudents, setDeletedStudents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -38,8 +38,27 @@ export default function PreviousStudents() {
       });
   };
 
+  const handlePermanentDelete = (id) => {
+    if (!window.confirm("Are you sure you want to permanently delete this student? This action cannot be undone.")) {
+      return;
+    }
+
+    fetch(`${API_URL}/api/students/permanent/${id}`, {
+      method: 'DELETE',
+    })
+      .then(res => res.json())
+      .then((data) => {
+        setDeletedStudents(deletedStudents.filter(student => student.id !== id));
+        toast.success(data.message || 'Student permanently deleted.');
+      })
+      .catch(err => {
+        console.error('Error deleting student permanently:', err);
+        toast.error('Could not connect to server.');
+      });
+  };
+
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-purple-50 px-4 sm:px-6 lg:px-8 py-8">
+    <main className="min-h-screen bg-linear-to-br from-slate-50 via-white to-purple-50 px-4 sm:px-6 lg:px-8 py-8">
       <div className="max-w-5xl mx-auto">
 
         {/* Header & Back Button */}
@@ -49,7 +68,7 @@ export default function PreviousStudents() {
               <ArrowLeft size={16} /> Back to Daily Tracker
             </Link>
             <h1 className="text-2xl sm:text-3xl font-bold text-slate-800">Previous Students Archive</h1>
-            <p className="text-sm text-slate-400 mt-1">View records of students who have left or restore them back to active classes</p>
+            <p className="text-sm text-slate-400 mt-1">View records of students who have left, restore them, or delete them permanently</p>
           </div>
         </div>
 
@@ -84,13 +103,21 @@ export default function PreviousStudents() {
                   </div>
                 </div>
 
-                {/* Restore Button */}
-                <button
-                  onClick={() => handleRestore(student.id)}
-                  className="px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 transition shrink-0"
-                >
-                  <UserCheck size={16} /> Restore Student
-                </button>
+                {/* Actions */}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleRestore(student.id)}
+                    className="px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 transition shrink-0"
+                  >
+                    <UserCheck size={16} /> Restore
+                  </button>
+                  <button
+                    onClick={() => handlePermanentDelete(student.id)}
+                    className="px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition shrink-0"
+                  >
+                    <Trash2 size={16} /> Delete Forever
+                  </button>
+                </div>
               </div>
             ))}
           </div>

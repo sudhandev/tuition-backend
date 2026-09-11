@@ -4,15 +4,14 @@ import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
 export default function FeesPaid() {
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  const API_URL = import.meta.env.VITE_API_URL || 'https://tuition-backend-fwlw.onrender.com';
 
   const [students, setStudents] = useState([]);
   const [attendanceRecords, setAttendanceRecords] = useState({});
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Synchronized fee cycle logic using Math.max(1, totalCyclesPassed)
-  const checkFeeCycle = (joiningDate, paidMonthsCount = 0) => {
-    if (!joiningDate) return { isDue: false };
+  const checkFeeCycle = (joiningDate, monthlyFee = 0, paidMonthsCount = 0) => {
+    if (!joiningDate) return { isDue: false, hasStarted: false, remainingMonths: 0, totalDueAmount: 0 };
     
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -20,20 +19,29 @@ export default function FeesPaid() {
     const joinDate = new Date(joiningDate);
     joinDate.setHours(0, 0, 0, 0);
 
-    if (today < joinDate) return { isDue: false };
+    if (today < joinDate) {
+      return { isDue: false, hasStarted: false, remainingMonths: 0, totalDueAmount: 0 };
+    }
 
     let totalCyclesPassed = 0;
     let testDate = new Date(joinDate);
-
+    
     while (testDate <= today) {
       totalCyclesPassed++;
       testDate = new Date(joinDate);
       testDate.setMonth(joinDate.getMonth() + totalCyclesPassed);
     }
 
-    const dueCyclesCount = Math.max(1, totalCyclesPassed);
-    const remainingMonths = Math.max(0, dueCyclesCount - (paidMonthsCount || 0));
-    return { isDue: remainingMonths > 0 };
+    const remainingMonths = Math.max(0, totalCyclesPassed - (paidMonthsCount || 0));
+    const feeAmount = Number(monthlyFee) || 1000;
+    const totalDueAmount = remainingMonths * feeAmount;
+
+    return { 
+      isDue: remainingMonths > 0, 
+      hasStarted: true,
+      remainingMonths, 
+      totalDueAmount 
+    };
   };
 
   useEffect(() => {
@@ -53,7 +61,7 @@ export default function FeesPaid() {
 
   const studentPaidMonthsMap = {};
   Object.values(attendanceRecords).forEach((record) => {
-    const feesMap = record?.feesPaid || {};
+    const feesMap = record?.feesPaid || record?.Morning?.feesPaid || record?.Evening?.feesPaid || {};
     Object.keys(feesMap).forEach((studentId) => {
       const count = feesMap[studentId] || 0;
       if (count > (studentPaidMonthsMap[studentId] || 0)) {
@@ -64,8 +72,8 @@ export default function FeesPaid() {
 
   const paidStudents = students.filter((student) => {
     const paidMonths = studentPaidMonthsMap[student.id] || 0;
-    const cycleInfo = checkFeeCycle(student.joiningDate, paidMonths);
-    return !cycleInfo.isDue;
+    const cycleInfo = checkFeeCycle(student.joiningDate, student.fees, paidMonths);
+    return cycleInfo.hasStarted && !cycleInfo.isDue;
   });
 
   const filteredStudents = paidStudents.filter((s) =>
@@ -73,7 +81,7 @@ export default function FeesPaid() {
   );
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-green-50 px-4 sm:px-6 lg:px-8 py-8">
+    <main className="min-h-screen bg-linear-to-br from-slate-50 via-white to-green-50 px-4 sm:px-6 lg:px-8 py-8">
       <div className="max-w-5xl mx-auto">
         <Link to="/" className="inline-flex items-center gap-1.5 text-xs font-bold text-green-600 bg-green-50 px-3 py-1.5 rounded-xl mb-3 hover:bg-green-100 transition shadow-sm">
           <ArrowLeft size={16} /> Back to Main Page

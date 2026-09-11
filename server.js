@@ -15,7 +15,7 @@ mongoose.connect(MONGO_URI)
   .then(() => console.log('Connected to MongoDB Atlas Online Cloud!'))
   .catch((err) => console.error('MongoDB connection error:', err));
 
-// --- Schemas & Models ---
+// --- Schemas & Models (Previous records remain completely safe and untouched) ---
 const studentSchema = new mongoose.Schema({
   id: { type: Number, required: true, unique: true },
   name: String,
@@ -34,7 +34,7 @@ const attendanceSchema = new mongoose.Schema({
   date: { type: String, required: true, unique: true },
   attendance: Object,
   feesPaid: Object,
-  sessions: { type: Object, default: {} } // Stores { Morning: { attendance, feesPaid }, Evening: { attendance, feesPaid } }
+  sessions: { type: Object, default: {} }
 });
 
 const Attendance = mongoose.model('Attendance', attendanceSchema);
@@ -46,7 +46,6 @@ const feeSchema = new mongoose.Schema({
 });
 const Fee = mongoose.model('Fee', feeSchema);
 
-// --- Notes Schema & Model ---
 const noteSchema = new mongoose.Schema({
   id: { type: Number, required: true, unique: true },
   title: { type: String, required: true },
@@ -54,6 +53,18 @@ const noteSchema = new mongoose.Schema({
   createdAt: { type: String, default: () => new Date().toISOString().split('T')[0] }
 });
 const Note = mongoose.model('Note', noteSchema);
+
+// --- New Fine Schema & Model (Added safely without affecting existing collections) ---
+const fineSchema = new mongoose.Schema({
+  id: { type: String, required: true, unique: true },
+  studentId: String,
+  studentName: String,
+  session: String,
+  amount: Number,
+  date: String,
+  reason: String
+});
+const Fine = mongoose.model('Fine', fineSchema);
 
 // 1. GET: Fetch all active students
 app.get('/api/students', async (req, res) => {
@@ -130,7 +141,7 @@ app.put('/api/students/:id', async (req, res) => {
   }
 });
 
-// 5. GET: Fetch attendance (per session) & fee records (shared globally for the date)
+// 5. GET: Fetch attendance (per session) & fee records
 app.get('/api/attendance', async (req, res) => {
   try {
     const { date, session = 'Morning' } = req.query;
@@ -140,12 +151,10 @@ app.get('/api/attendance', async (req, res) => {
       return res.json({ attendance: {}, feesPaid: {} });
     }
 
-    // Get attendance specifically for the requested session
     const sessionAttendance = (record.sessions && record.sessions[session] && record.sessions[session].attendance) 
       ? record.sessions[session].attendance 
       : (session === 'Morning' ? (record.attendance || {}) : {});
 
-    // Fees are shared globally across the date for both sessions
     const feesPaid = record.feesPaid || (record.sessions && record.sessions['Morning'] && record.sessions['Morning'].feesPaid) || {};
 
     res.json({
@@ -157,7 +166,7 @@ app.get('/api/attendance', async (req, res) => {
   }
 });
 
-// 6. POST: Save attendance and fees safely without overwriting attendance with empty data
+// 6. POST: Save attendance and fees safely
 app.post('/api/attendance', async (req, res) => {
   try {
     const { date, session = 'Morning', attendanceData, feesPaidData } = req.body;
@@ -179,7 +188,6 @@ app.post('/api/attendance', async (req, res) => {
       record.sessions[session] = { attendance: {}, feesPaid: {} };
     }
 
-    // Only update attendance if attendanceData is actually provided and has records, preserving existing data otherwise
     if (attendanceData && Object.keys(attendanceData).length > 0) {
       record.sessions[session].attendance = attendanceData;
       if (session === 'Morning') {
@@ -187,7 +195,6 @@ app.post('/api/attendance', async (req, res) => {
       }
     }
 
-    // Always update fees globally across both sessions when provided
     if (feesPaidData) {
       record.feesPaid = feesPaidData;
       if (!record.sessions['Morning']) record.sessions['Morning'] = { attendance: {}, feesPaid: {} };
@@ -330,6 +337,58 @@ app.delete('/api/notes/:id', async (req, res) => {
       res.json({ message: 'Note deleted successfully!' });
     } else {
       res.status(404).json({ message: 'Note not found' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- FINE TRACKER ENDPOINTS ---
+
+app.get('/api/fines', async (req, res) => {
+  try {
+    const fines = await Fine.find().sort({ _id: -1 });
+    res.json(fines);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/fines', async (req, res) => {
+  try {
+    const newFine = new Fine({
+      id: Date.now().toString(),
+      ...req.body
+    });
+    await newFine.save();
+    res.status(201).json(newFine);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/fines/:id', async (req, res) => {
+  try {
+    const fineId = req.params.id;
+    const updatedFine = await Fine.findOneAndUpdate({ id: fineId }, req.body, { new: true });
+    if (updatedFine) {
+      res.json({ message: 'Fine updated successfully!', fine: updatedFine });
+    } else {
+      res.status(404).json({ message: 'Fine record not found' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/fines/:id', async (req, res) => {
+  try {
+    const fineId = req.params.id;
+    const result = await Fine.deleteOne({ id: fineId });
+    if (result.deletedCount > 0) {
+      res.json({ message: 'Fine deleted successfully!' });
+    } else {
+      res.status(404).json({ message: 'Fine record not found' });
     }
   } catch (err) {
     res.status(500).json({ error: err.message });

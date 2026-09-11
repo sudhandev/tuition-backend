@@ -4,15 +4,14 @@ import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
 export default function FeesPending() {
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  const API_URL = import.meta.env.VITE_API_URL || 'https://tuition-backend-fwlw.onrender.com';
 
   const [students, setStudents] = useState([]);
   const [attendanceRecords, setAttendanceRecords] = useState({});
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Fixed fee cycle logic using Math.max(1, totalCyclesPassed) to ensure immediate pending status on join
-  const checkFeeCycle = (joiningDate, paidMonthsCount = 0) => {
-    if (!joiningDate) return { isDue: false, remainingMonths: 0 };
+  const checkFeeCycle = (joiningDate, monthlyFee = 0, paidMonthsCount = 0) => {
+    if (!joiningDate) return { isDue: false, hasStarted: false, remainingMonths: 0, totalDueAmount: 0 };
     
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -20,20 +19,29 @@ export default function FeesPending() {
     const joinDate = new Date(joiningDate);
     joinDate.setHours(0, 0, 0, 0);
 
-    if (today < joinDate) return { isDue: false, remainingMonths: 0 };
+    if (today < joinDate) {
+      return { isDue: false, hasStarted: false, remainingMonths: 0, totalDueAmount: 0 };
+    }
 
     let totalCyclesPassed = 0;
     let testDate = new Date(joinDate);
-
+    
     while (testDate <= today) {
       totalCyclesPassed++;
       testDate = new Date(joinDate);
       testDate.setMonth(joinDate.getMonth() + totalCyclesPassed);
     }
 
-    const dueCyclesCount = Math.max(1, totalCyclesPassed);
-    const remainingMonths = Math.max(0, dueCyclesCount - (paidMonthsCount || 0));
-    return { isDue: remainingMonths > 0, remainingMonths };
+    const remainingMonths = Math.max(0, totalCyclesPassed - (paidMonthsCount || 0));
+    const feeAmount = Number(monthlyFee) || 1000;
+    const totalDueAmount = remainingMonths * feeAmount;
+
+    return { 
+      isDue: remainingMonths > 0, 
+      hasStarted: true,
+      remainingMonths, 
+      totalDueAmount 
+    };
   };
 
   useEffect(() => {
@@ -53,7 +61,7 @@ export default function FeesPending() {
 
   const studentPaidMonthsMap = {};
   Object.values(attendanceRecords).forEach((record) => {
-    const feesMap = record?.feesPaid || {};
+    const feesMap = record?.feesPaid || record?.Morning?.feesPaid || record?.Evening?.feesPaid || {};
     Object.keys(feesMap).forEach((studentId) => {
       const count = feesMap[studentId] || 0;
       if (count > (studentPaidMonthsMap[studentId] || 0)) {
@@ -64,8 +72,8 @@ export default function FeesPending() {
 
   const pendingStudents = students.filter((student) => {
     const paidMonths = studentPaidMonthsMap[student.id] || 0;
-    const cycleInfo = checkFeeCycle(student.joiningDate, paidMonths);
-    return cycleInfo.isDue;
+    const cycleInfo = checkFeeCycle(student.joiningDate, student.fees, paidMonths);
+    return cycleInfo.hasStarted && cycleInfo.isDue;
   });
 
   const filteredStudents = pendingStudents.filter((s) =>
@@ -103,9 +111,7 @@ export default function FeesPending() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {filteredStudents.map((student) => {
               const paidMonths = studentPaidMonthsMap[student.id] || 0;
-              const cycleInfo = checkFeeCycle(student.joiningDate, paidMonths);
-              const monthlyFee = Number(student.fees) || 1000;
-              const totalDueAmount = cycleInfo.remainingMonths * monthlyFee;
+              const cycleInfo = checkFeeCycle(student.joiningDate, student.fees, paidMonths);
 
               return (
                 <div key={student.id} className="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 flex items-center justify-between">
@@ -121,7 +127,7 @@ export default function FeesPending() {
                   <div className="text-right">
                     <span className="text-red-600 font-bold text-lg flex items-center justify-end">
                       <IndianRupee size={16} />
-                      {totalDueAmount}
+                      {cycleInfo.totalDueAmount}
                     </span>
                     <span className="text-[10px] bg-red-50 text-red-600 px-2 py-1 rounded-full font-semibold uppercase">
                       {cycleInfo.remainingMonths} Month(s) Pending

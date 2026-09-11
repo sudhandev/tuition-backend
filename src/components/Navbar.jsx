@@ -7,7 +7,8 @@ import {
   Archive,
   Wallet,
   BookOpenCheck,
-  NotebookPen
+  NotebookPen,
+  DollarSign
 } from "lucide-react";
 export default function Sidebar() {
   const location = useLocation();
@@ -36,6 +37,8 @@ export default function Sidebar() {
       label: "Attendance Report",
       icon: <BookOpenCheck size={20} />,
     },
+
+    { path: "/fines", label: "Fine Tracker", icon: <DollarSign size={20} /> },
     {path:"/notes", label:"Notes", icon:<NotebookPen  size={20}/>},
   ];
 
@@ -75,7 +78,7 @@ export default function Sidebar() {
                     onClick={() => setIsOpen(false)}
                     className={`block px-4 py-3 rounded-xl transition-all  font-medium text-l text-purple-400  ${
                       isActive
-                        ? "bg-purple-400 !text-white shadow-md"
+                        ? "bg-purple-400 text-white! shadow-md"
                         : "text-purple-800 hover:bg-purple-600 hover:text-white"
                     }`}
                   >
