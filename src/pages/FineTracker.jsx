@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { AlertCircle, Calendar, DollarSign, UserRound, ArrowLeft, Plus, Edit2, Trash2, Check, Sun, Moon, CheckCircle2, Clock } from "lucide-react";
+import { AlertCircle, Calendar, DollarSign, UserRound, ArrowLeft, Plus, Edit2, Trash2, Check, Sun, Moon, CheckCircle2, Clock, Filter } from "lucide-react";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
 
@@ -9,6 +9,9 @@ export default function FineTracker() {
   const [students, setStudents] = useState([]);
   const [finesList, setFinesList] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Tab State: 'Pending' or 'Paid'
+  const [activeTab, setActiveTab] = useState('Pending');
 
   // Form State
   const [selectedStudent, setSelectedStudent] = useState('');
@@ -144,6 +147,12 @@ export default function FineTracker() {
     .filter(item => item.status !== 'Paid')
     .reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
 
+  // Filter fines for the active tab
+  const filteredFinesList = finesList.filter(item => {
+    if (activeTab === 'Paid') return item.status === 'Paid';
+    return item.status !== 'Paid'; // Pending tab
+  });
+
   return (
     <main className="min-h-screen bg-linear-to-br from-slate-50 via-white to-purple-50 px-4 sm:px-6 lg:px-8 py-8">
       <div className="max-w-4xl mx-auto">
@@ -258,30 +267,6 @@ export default function FineTracker() {
               />
             </div>
 
-            {/* <div>
-              <label className="block text-xs font-bold text-slate-600 mb-2">Payment Status</label>
-              <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => setFineStatus('Pending')}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold transition ${
-                    fineStatus === 'Pending' ? 'bg-red-50 text-red-600 shadow-xs border border-red-100' : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  <Clock size={14} /> Pending
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFineStatus('Paid')}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold transition ${
-                    fineStatus === 'Paid' ? 'bg-emerald-50 text-emerald-600 shadow-xs border border-emerald-100' : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  <CheckCircle2 size={14} /> Paid
-                </button>
-              </div>
-            </div> */}
-
             <div>
               <label className="block text-xs font-bold text-slate-600 mb-2">Reason / Infraction</label>
               <input
@@ -314,20 +299,46 @@ export default function FineTracker() {
           </form>
         </div>
 
-        {/* View Fines History List */}
+        {/* View Fines History List with Session Tabs */}
         <div className="bg-white/90 backdrop-blur-md rounded-3xl border border-slate-200/80 shadow-sm p-6 sm:p-8">
-          <h2 className="text-base font-bold text-slate-800 mb-6 flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600">
-              <AlertCircle size={18} />
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+            <h2 className="text-base font-bold text-slate-800 flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600">
+                <AlertCircle size={18} />
+              </div>
+              Recorded Fines History
+            </h2>
+
+            {/* Session Tabs: Pending Fine / Paid Fine */}
+            <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200 shrink-0">
+              <button
+                onClick={() => setActiveTab('Pending')}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition ${
+                  activeTab === 'Pending' 
+                    ? 'bg-white text-red-600 shadow-xs border border-slate-200/60' 
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Clock size={14} /> Pending Fines ({finesList.filter(i => i.status !== 'Paid').length})
+              </button>
+              <button
+                onClick={() => setActiveTab('Paid')}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition ${
+                  activeTab === 'Paid' 
+                    ? 'bg-white text-emerald-600 shadow-xs border border-slate-200/60' 
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <CheckCircle2 size={14} /> Paid Fines ({finesList.filter(i => i.status === 'Paid').length})
+              </button>
             </div>
-            Recorded Fines History ({finesList.length})
-          </h2>
+          </div>
 
           {loading ? (
             <div className="text-center py-12 text-slate-400 text-xs font-medium">Loading fines history...</div>
-          ) : finesList.length > 0 ? (
+          ) : filteredFinesList.length > 0 ? (
             <div className="space-y-3.5">
-              {finesList.map((item) => {
+              {filteredFinesList.map((item) => {
                 const isPaid = item.status === 'Paid';
                 return (
                   <div 
@@ -407,8 +418,8 @@ export default function FineTracker() {
               <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-3 text-slate-400">
                 <AlertCircle size={24} />
               </div>
-              <p className="font-semibold text-slate-600 text-sm">No fine records found</p>
-              <p className="text-xs mt-1 text-slate-400">Use the form above to add a fine for leave infractions.</p>
+              <p className="font-semibold text-slate-600 text-sm">No {activeTab.toLowerCase()} fine records found</p>
+              <p className="text-xs mt-1 text-slate-400">Switch tabs or add a new fine above.</p>
             </div>
           )}
         </div>

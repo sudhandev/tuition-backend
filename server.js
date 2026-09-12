@@ -24,8 +24,13 @@ const studentSchema = new mongoose.Schema({
   fees: Number,
   birthday: String,
   dob: String,
+  phone: String,          // <-- Added
+  phoneNumber: String,    // <-- Added (alias)
+  mobile: String,         // <-- Added (alias)
   deletedAt: String
 });
+
+
 
 const Student = mongoose.model('Student', studentSchema);
 const DeletedStudent = mongoose.model('DeletedStudent', studentSchema);

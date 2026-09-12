@@ -10,22 +10,28 @@ export default function TakeAttendance() {
   const [session, setSession] = useState('Morning'); // 'Morning' or 'Evening'
   const [attendance, setAttendance] = useState({});
   const [feesPaidRecords, setFeesPaidRecords] = useState({});
+  const [allAttendanceRecords, setAllAttendanceRecords] = useState({});
   const [filterPendingOnly, setFilterPendingOnly] = useState(false);
 
   const todayStr = new Date().toISOString().split('T')[0];
   const isNotToday = selectedDate !== todayStr;
 
   useEffect(() => {
-    fetch(`${API_URL}/api/students`)
-      .then((res) => res.json())
-      .then((data) => setStudents(data))
+    Promise.all([
+      fetch(`${API_URL}/api/students`).then((res) => res.json()),
+      fetch(`${API_URL}/api/all-attendance`).then((res) => res.json()),
+    ])
+      .then(([studentData, attendanceData]) => {
+        setStudents(studentData);
+        setAllAttendanceRecords(attendanceData);
+      })
       .catch((err) => {
-        console.error('Error fetching students:', err);
-        toast.error('Failed to load students.');
+        console.error('Error fetching data:', err);
+        toast.error('Failed to load records.');
       });
   }, [API_URL]);
 
-  // Load attendance and fee records strictly for the selected date and session without historical bleed
+  // Load attendance and fee records strictly for the selected date and session
   useEffect(() => {
     setAttendance({});
     setFeesPaidRecords({});
@@ -54,6 +60,31 @@ export default function TakeAttendance() {
         toast.error('Failed to load records.');
       });
   }, [selectedDate, session, API_URL]);
+
+  // Extract TRUE LATEST fee state across all dates (descending order) to match dashboard & pending lists
+  const studentPaidMonthsMap = {};
+  const sortedDates = Object.keys(allAttendanceRecords).sort().reverse();
+
+  sortedDates.forEach((dateKey) => {
+    const record = allAttendanceRecords[dateKey];
+    const sources = [
+      record?.feesPaid,
+      record?.Morning?.feesPaid,
+      record?.Evening?.feesPaid,
+      record?.sessions?.Morning?.feesPaid,
+      record?.sessions?.Evening?.feesPaid
+    ];
+
+    sources.forEach((feesMap) => {
+      if (feesMap && typeof feesMap === 'object') {
+        Object.keys(feesMap).forEach((studentId) => {
+          if (studentPaidMonthsMap[studentId] === undefined) {
+            studentPaidMonthsMap[studentId] = feesMap[studentId] || 0;
+          }
+        });
+      }
+    });
+  });
 
   const toggleSessionAttendee = (id, currentStudentName) => {
     if (isNotToday) return;
@@ -87,9 +118,9 @@ export default function TakeAttendance() {
     saveDataToServer(updatedAttendance, feesPaidRecords, namesSnapshot);
   };
 
-  const toggleFeeStatus = (id, cycleInfo, currentStudentName, studentFeeAmount) => {
+  const toggleFeeStatus = (id, cycleInfo, currentStudentName) => {
     if (isNotToday) return;
-    const currentPaidMonths = feesPaidRecords[id] || 0;
+    const currentPaidMonths = feesPaidRecords[id] || studentPaidMonthsMap[id] || 0;
     
     const nextPaidMonths = currentPaidMonths + cycleInfo.remainingMonths;
     const updatedFees = { ...feesPaidRecords, [id]: nextPaidMonths };
@@ -108,7 +139,7 @@ export default function TakeAttendance() {
   const handleUndoFee = (id, currentStudentName) => {
     if (isNotToday) return;
     
-    const currentPaid = feesPaidRecords[id] || 0;
+    const currentPaid = feesPaidRecords[id] || studentPaidMonthsMap[id] || 0;
     const undoMonths = Math.max(0, currentPaid - 1);
     
     const updatedFees = { ...feesPaidRecords, [id]: undoMonths };
@@ -150,26 +181,26 @@ export default function TakeAttendance() {
   const checkFeeCycle = (joiningDate, monthlyFee = 0, paidMonthsCount = 0) => {
     if (!joiningDate) return { isDue: false, hasStarted: false, remainingMonths: 0, totalDueAmount: 0 };
     
-    const selDateObj = new Date(selectedDate);
-    const joinDateObj = new Date(joiningDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-    if (selDateObj < joinDateObj) {
+    const joinDate = new Date(joiningDate);
+    joinDate.setHours(0, 0, 0, 0);
+
+    if (today < joinDate) {
       return { isDue: false, hasStarted: false, remainingMonths: 0, totalDueAmount: 0 };
     }
 
-    let yearsDiff = selDateObj.getFullYear() - joinDateObj.getFullYear();
-    let monthsDiff = selDateObj.getMonth() - joinDateObj.getMonth();
+    let totalCyclesPassed = 0;
+    let testDate = new Date(joinDate);
     
-    // Include the joining month itself (+1)
-    let totalCyclesPassed = (yearsDiff * 12) + monthsDiff + 1;
-
-    // If the selected date's day hasn't reached the joining day yet this month, 
-    // the current month's fee cycle is not due yet.
-    if (selDateObj.getDate() < joinDateObj.getDate()) {
-      totalCyclesPassed = Math.max(0, totalCyclesPassed - 1);
+    while (testDate <= today) {
+      totalCyclesPassed++;
+      testDate = new Date(joinDate);
+      testDate.setMonth(joinDate.getMonth() + totalCyclesPassed);
     }
 
-    const remainingMonths = Math.max(0, totalCyclesPassed - (paidMonthsCount || 0));
+    const remainingMonths = Math.max(0, totalCyclesPassed - (Number(paidMonthsCount) || 0));
     const feeAmount = Number(monthlyFee) || 1000;
     const totalDueAmount = remainingMonths * feeAmount;
 
@@ -189,7 +220,7 @@ export default function TakeAttendance() {
       return false;
     }
 
-    const paidMonths = feesPaidRecords[student.id] || 0;
+    const paidMonths = studentPaidMonthsMap[student.id] || 0;
     const cycleInfo = checkFeeCycle(student.joiningDate, student.fees, paidMonths);
     const isPending = cycleInfo.hasStarted && cycleInfo.isDue;
 
@@ -281,7 +312,7 @@ export default function TakeAttendance() {
           {displayedStudents.length > 0 ? (
             displayedStudents.map((student) => {
               const status = attendance[student.id];
-              const paidMonths = feesPaidRecords[student.id] || 0;
+              const paidMonths = studentPaidMonthsMap[student.id] || 0;
               const studentFeeAmount = Number(student.fees) || 1000;
               const cycleInfo = checkFeeCycle(student.joiningDate, studentFeeAmount, paidMonths);
               const isPending = cycleInfo.hasStarted && cycleInfo.isDue;
@@ -334,7 +365,7 @@ export default function TakeAttendance() {
                     {/* Fee Button */}
                     {isPending ? (
                       <button
-                        onClick={() => toggleFeeStatus(student.id, cycleInfo, student.name, studentFeeAmount)}
+                        onClick={() => toggleFeeStatus(student.id, cycleInfo, student.name)}
                         disabled={isNotToday}
                         className={`px-4 py-2.5 rounded-xl font-semibold text-xs flex items-center gap-1.5 transition ${
                           isNotToday ? 'opacity-50 cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-amber-500 text-white shadow-sm hover:bg-amber-600 animate-pulse'

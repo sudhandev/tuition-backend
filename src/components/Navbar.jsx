@@ -8,7 +8,7 @@ import {
   Wallet,
   BookOpenCheck,
   NotebookPen,
-  DollarSign
+  DollarSign,
 } from "lucide-react";
 export default function Sidebar() {
   const location = useLocation();
@@ -32,14 +32,14 @@ export default function Sidebar() {
       icon: <Archive size={20} />,
     },
     { path: "/fees", label: "Fees Structures", icon: <Wallet size={20} /> },
+    
+    { path: "/fines", label: "Fine Tracker", icon: <DollarSign size={20} /> },
+    { path: "/notes", label: "Notes", icon: <NotebookPen size={20} /> },
     {
       path: "/attendance-report",
       label: "Attendance Report",
       icon: <BookOpenCheck size={20} />,
     },
-
-    { path: "/fines", label: "Fine Tracker", icon: <DollarSign size={20} /> },
-    {path:"/notes", label:"Notes", icon:<NotebookPen  size={20}/>},
   ];
 
   return (
@@ -97,7 +97,7 @@ export default function Sidebar() {
           className="text-purple-600 hover:text-purple-800 transition"
         >
           <div className="name text-2xl font-bold text-purple-600 hover:text-purple-800 transition p-4 flex items-center gap-2">
-            {<BookOpenCheck size={32} strokeWidth={2.5} />} <p >Attendance </p>
+            {<BookOpenCheck size={32} strokeWidth={2.5} />} <p>Attendance </p>
           </div>
         </Link>
       </div>

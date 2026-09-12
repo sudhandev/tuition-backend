@@ -50,7 +50,7 @@ export default function TotalStudents() {
         student.studentClass.toLowerCase().includes(search.toLowerCase())),
   );
 
-  // Open Edit Modal and pre-fill form data
+  // Open Edit Modal and pre-fill form data (with multi-property fallback for phone)
   const handleEditClick = (student) => {
     setEditingStudent(student);
     setFormData({
@@ -58,7 +58,7 @@ export default function TotalStudents() {
       studentClass: student.studentClass || "",
       dob: student.dob || "",
       fees: student.fees || "",
-      phone: student.phone || "",
+      phone: student.phone || student.phoneNumber || student.mobile || "",
       joiningDate: student.joiningDate || "",
     });
   };
@@ -183,7 +183,7 @@ export default function TotalStudents() {
                         <Phone size={14} /> Phone:
                       </span>
                       <span className="font-medium text-slate-700">
-                        {student.phone}
+                        {student.phone || student.phoneNumber || student.mobile || "N/A"}
                       </span>
                     </div>
 
