@@ -7,54 +7,23 @@ export default function FeesPaid() {
   const API_URL = import.meta.env.VITE_API_URL || 'https://tuition-backend-fwlw.onrender.com';
 
   const [students, setStudents] = useState([]);
-  const [attendanceRecords, setAttendanceRecords] = useState({});
+  const [paidMonthsLog, setPaidMonthsLog] = useState({}); // { studentId: ["2026-08","2026-09"] }
   const [searchQuery, setSearchQuery] = useState('');
   const [cycleFilter, setCycleFilter] = useState('all'); // 'all', 'current_cycle'
 
-  const checkFeeCycle = (joiningDate, monthlyFee = 0, paidMonthsCount = 0) => {
-    if (!joiningDate) return { isDue: false, hasStarted: false, remainingMonths: 0, totalDueAmount: 0, expectedCycles: 0 };
-    
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const joinDate = new Date(joiningDate);
-    joinDate.setHours(0, 0, 0, 0);
-
-    if (today < joinDate) {
-      return { isDue: false, hasStarted: false, remainingMonths: 0, totalDueAmount: 0, expectedCycles: 0 };
-    }
-
-    let yearsDiff = today.getFullYear() - joinDate.getFullYear();
-    let monthsDiff = today.getMonth() - joinDate.getMonth();
-    let expectedCycles = (yearsDiff * 12) + monthsDiff + 1;
-
-    const isBillingDatePassed = today.getDate() >= joinDate.getDate();
-    if (!isBillingDatePassed) {
-      expectedCycles = Math.max(0, expectedCycles - 1);
-    }
-
-    const paid = Number(paidMonthsCount) || 0;
-    const remainingMonths = Math.max(0, expectedCycles - paid);
-    const feeAmount = Number(monthlyFee) || 1000;
-    const totalDueAmount = remainingMonths * feeAmount;
-
-    return { 
-      isDue: remainingMonths > 0, 
-      hasStarted: true,
-      remainingMonths, 
-      totalDueAmount,
-      expectedCycles
-    };
-  };
+  const currentMonthKey = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  })();
 
   useEffect(() => {
     Promise.all([
       fetch(`${API_URL}/api/students`).then((res) => res.json()),
-      fetch(`${API_URL}/api/all-attendance`).then((res) => res.json()),
+      fetch(`${API_URL}/api/fees/paid-months`).then((res) => res.json()),
     ])
-      .then(([studentData, attendanceData]) => {
+      .then(([studentData, paidMonthsData]) => {
         setStudents(studentData);
-        setAttendanceRecords(attendanceData);
+        setPaidMonthsLog(paidMonthsData);
       })
       .catch((err) => {
         console.error('Error fetching data:', err);
@@ -62,55 +31,20 @@ export default function FeesPaid() {
       });
   }, [API_URL]);
 
-  // Extract the TRUE LATEST fee state by sorting dates newest first and avoiding Math.max accumulation
-  const studentPaidMonthsMap = {};
-  const sortedDates = Object.keys(attendanceRecords).sort().reverse();
+  const hasPaidThisMonth = (studentId) =>
+    (paidMonthsLog[studentId] || []).includes(currentMonthKey);
 
-  sortedDates.forEach((dateKey) => {
-    const record = attendanceRecords[dateKey];
-    const sources = [
-      record?.feesPaid,
-      record?.Morning?.feesPaid,
-      record?.Evening?.feesPaid,
-      record?.sessions?.Morning?.feesPaid,
-      record?.sessions?.Evening?.feesPaid
-    ];
+  const totalMonthsPaid = (studentId) => (paidMonthsLog[studentId] || []).length;
 
-    sources.forEach((feesMap) => {
-      if (feesMap && typeof feesMap === 'object') {
-        Object.keys(feesMap).forEach((studentId) => {
-          if (studentPaidMonthsMap[studentId] === undefined) {
-            studentPaidMonthsMap[studentId] = feesMap[studentId] || 0;
-          }
-        });
-      }
-    });
-  });
+  // "All Paid": students with at least one recorded payment, ever
+  const paidStudents = students.filter((student) => totalMonthsPaid(student.id) > 0);
 
-  // "All Paid": Students with zero pending dues
-  const paidStudents = students.filter((student) => {
-    const paidMonths = studentPaidMonthsMap[student.id] || 0;
-    const cycleInfo = checkFeeCycle(student.joiningDate, student.fees, paidMonths);
-    return cycleInfo.hasStarted && !cycleInfo.isDue;
-  });
-
-  // Apply sub-filter for All Paid vs Current Month Cleared
   const filteredStudents = paidStudents.filter((student) => {
-    const paidMonths = studentPaidMonthsMap[student.id] || 0;
-    
-    const today = new Date();
-    const joinDate = new Date(student.joiningDate);
-    const currentYearMonth = (today.getFullYear() * 12) + today.getMonth();
-    const joinYearMonth = (joinDate.getFullYear() * 12) + joinDate.getMonth();
-    const monthsSinceJoin = (currentYearMonth - joinYearMonth) + 1;
-
-    const isAdvance = paidMonths > monthsSinceJoin;
-    const isCurrentMonthCleared = paidMonths === monthsSinceJoin || (paidMonths >= monthsSinceJoin && !isAdvance);
-
-    if (cycleFilter === 'current_cycle' && !isCurrentMonthCleared) return false;
-
+    if (cycleFilter === 'current_cycle' && !hasPaidThisMonth(student.id)) return false;
     return student.name.toLowerCase().includes(searchQuery.toLowerCase());
   });
+
+  const currentMonthCount = paidStudents.filter((s) => hasPaidThisMonth(s.id)).length;
 
   return (
     <main className="min-h-screen bg-linear-to-br from-slate-50 via-white to-green-50 px-4 sm:px-6 lg:px-8 py-8">
@@ -128,7 +62,6 @@ export default function FeesPaid() {
           </div>
         </div>
 
-        {/* Search & Filter Bar */}
         <div className="space-y-3 mb-6">
           <div className="bg-white rounded-2xl border border-slate-200 p-4 flex items-center gap-3 shadow-sm">
             <Search size={20} className="text-slate-400" />
@@ -141,7 +74,6 @@ export default function FeesPaid() {
             />
           </div>
 
-          {/* Filter System Pills (Advance Filter Removed) */}
           <div className="flex items-center gap-2 overflow-x-auto pb-1">
             <span className="text-xs font-bold text-slate-400 flex items-center gap-1 shrink-0 px-1">
               <Filter size={14} /> Filter By:
@@ -149,8 +81,8 @@ export default function FeesPaid() {
             <button
               onClick={() => setCycleFilter('all')}
               className={`px-4 py-2 rounded-xl text-xs font-bold transition shrink-0 ${
-                cycleFilter === 'all' 
-                  ? 'bg-green-600 text-white shadow-sm' 
+                cycleFilter === 'all'
+                  ? 'bg-green-600 text-white shadow-sm'
                   : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
               }`}
             >
@@ -159,12 +91,12 @@ export default function FeesPaid() {
             <button
               onClick={() => setCycleFilter('current_cycle')}
               className={`px-4 py-2 rounded-xl text-xs font-bold transition shrink-0 ${
-                cycleFilter === 'current_cycle' 
-                  ? 'bg-green-600 text-white shadow-sm' 
+                cycleFilter === 'current_cycle'
+                  ? 'bg-green-600 text-white shadow-sm'
                   : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
               }`}
             >
-              Current Month Cleared
+              Current Month Cleared ({currentMonthCount})
             </button>
           </div>
         </div>
@@ -172,13 +104,8 @@ export default function FeesPaid() {
         {filteredStudents.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {filteredStudents.map((student) => {
-              const paidMonths = studentPaidMonthsMap[student.id] || 0;
-              const today = new Date();
-              const joinDate = new Date(student.joiningDate);
-              const currentYearMonth = (today.getFullYear() * 12) + today.getMonth();
-              const joinYearMonth = (joinDate.getFullYear() * 12) + joinDate.getMonth();
-              const monthsSinceJoin = (currentYearMonth - joinYearMonth) + 1;
-              const isAdvance = paidMonths > monthsSinceJoin;
+              const months = totalMonthsPaid(student.id);
+              const paidThisMonth = hasPaidThisMonth(student.id);
 
               return (
                 <div key={student.id} className="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 flex items-center justify-between">
@@ -197,7 +124,7 @@ export default function FeesPaid() {
                       {student.fees || 1000}
                     </span>
                     <span className="text-[10px] px-2 py-1 rounded-full font-semibold uppercase bg-green-50 text-green-600">
-                      {isAdvance ? `Paid (${paidMonths}m total)` : 'Current Month Cleared'}
+                      {paidThisMonth ? 'Current Month Cleared' : `Paid (${months}m total)`}
                     </span>
                   </div>
                 </div>
