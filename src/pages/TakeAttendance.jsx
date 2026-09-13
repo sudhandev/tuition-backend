@@ -7,7 +7,7 @@ export default function TakeAttendance() {
   const API_URL = import.meta.env.VITE_API_URL || 'https://tuition-backend-fwlw.onrender.com';
   const [students, setStudents] = useState([]);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [session, setSession] = useState('Morning'); // 'Morning' or 'Evening'
+  const [session, setSession] = useState('Morning');
   const [attendance, setAttendance] = useState({});
   const [feesPaidRecords, setFeesPaidRecords] = useState({});
   const [allAttendanceRecords, setAllAttendanceRecords] = useState({});
@@ -31,7 +31,6 @@ export default function TakeAttendance() {
       });
   }, [API_URL]);
 
-  // Load attendance and fee records strictly for the selected date and session
   useEffect(() => {
     setAttendance({});
     setFeesPaidRecords({});
@@ -41,7 +40,7 @@ export default function TakeAttendance() {
       .then(sessionData => {
         const rawAttendance = sessionData && sessionData.attendance ? sessionData.attendance : {};
         const normalizedAttendance = {};
-        
+
         Object.keys(rawAttendance).forEach(id => {
           const val = rawAttendance[id];
           if (val && typeof val === 'object' && val.status) {
@@ -61,7 +60,6 @@ export default function TakeAttendance() {
       });
   }, [selectedDate, session, API_URL]);
 
-  // Extract TRUE LATEST fee state across all dates (descending order) to match dashboard & pending lists
   const studentPaidMonthsMap = {};
   const sortedDates = Object.keys(allAttendanceRecords).sort().reverse();
 
@@ -86,12 +84,27 @@ export default function TakeAttendance() {
     });
   });
 
+  // Given a join date and a starting cycle index (0-based), return the "YYYY-MM"
+  // keys for `count` consecutive billing cycles starting at that index.
+  // e.g. joined 2026-03-10, startCycleIndex=2, count=1 -> the cycle starting 2026-05
+  const getMonthKeysForCycles = (joiningDate, startCycleIndex, count) => {
+    const joinDate = new Date(joiningDate);
+    const keys = [];
+    for (let i = 0; i < count; i++) {
+      const cycleDate = new Date(joinDate);
+      cycleDate.setMonth(joinDate.getMonth() + startCycleIndex + i);
+      const key = `${cycleDate.getFullYear()}-${String(cycleDate.getMonth() + 1).padStart(2, '0')}`;
+      keys.push(key);
+    }
+    return keys;
+  };
+
   const toggleSessionAttendee = (id, currentStudentName) => {
     if (isNotToday) return;
 
     const currentStatus = attendance[id];
     let nextStatus;
-    
+
     if (!currentStatus) {
       nextStatus = 'Present';
     } else if (currentStatus === 'Present') {
@@ -121,7 +134,7 @@ export default function TakeAttendance() {
   const toggleFeeStatus = (id, cycleInfo, currentStudentName) => {
     if (isNotToday) return;
     const currentPaidMonths = feesPaidRecords[id] || studentPaidMonthsMap[id] || 0;
-    
+
     const nextPaidMonths = currentPaidMonths + cycleInfo.remainingMonths;
     const updatedFees = { ...feesPaidRecords, [id]: nextPaidMonths };
     setFeesPaidRecords(updatedFees);
@@ -132,16 +145,30 @@ export default function TakeAttendance() {
       namesSnapshot[id] = currentStudentName;
     }
 
+    // Existing count-based save — unchanged, keeps old dashboards working
     saveDataToServer(attendance, updatedFees, namesSnapshot);
+
+    // NEW: also record which actual calendar month(s) this payment covers,
+    // so "who paid this month" can be answered directly instead of guessed
+    const student = students.find(s => s.id === id);
+    if (student && student.joiningDate && cycleInfo.remainingMonths > 0) {
+      const monthKeys = getMonthKeysForCycles(student.joiningDate, currentPaidMonths, cycleInfo.remainingMonths);
+      fetch(`${API_URL}/api/fees/mark-paid`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentId: id, monthKeys })
+      }).catch(err => console.error('Error marking month-based payment:', err));
+    }
+
     toast.success(`Fee paid (₹${cycleInfo.totalDueAmount})!`);
   };
 
   const handleUndoFee = (id, currentStudentName) => {
     if (isNotToday) return;
-    
+
     const currentPaid = feesPaidRecords[id] || studentPaidMonthsMap[id] || 0;
     const undoMonths = Math.max(0, currentPaid - 1);
-    
+
     const updatedFees = { ...feesPaidRecords, [id]: undoMonths };
     setFeesPaidRecords(updatedFees);
 
@@ -152,6 +179,18 @@ export default function TakeAttendance() {
     }
 
     saveDataToServer(attendance, updatedFees, namesSnapshot);
+
+    // NEW: remove the corresponding month from paidMonthsLog too
+    const student = students.find(s => s.id === id);
+    if (student && student.joiningDate && currentPaid > 0) {
+      const [monthKeyToRemove] = getMonthKeysForCycles(student.joiningDate, currentPaid - 1, 1);
+      fetch(`${API_URL}/api/fees/unmark-paid`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentId: id, monthKey: monthKeyToRemove })
+      }).catch(err => console.error('Error unmarking payment:', err));
+    }
+
     toast.success("Payment undone (Reverted to Pending).");
   };
 
@@ -159,12 +198,12 @@ export default function TakeAttendance() {
     fetch(`${API_URL}/api/attendance`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        date: selectedDate, 
+      body: JSON.stringify({
+        date: selectedDate,
         session: session,
         attendanceData: currentAttendance,
         feesPaidData: currentFees,
-        studentNames: currentNames 
+        studentNames: currentNames
       })
     })
       .then((res) => {
@@ -180,7 +219,7 @@ export default function TakeAttendance() {
 
   const checkFeeCycle = (joiningDate, monthlyFee = 0, paidMonthsCount = 0) => {
     if (!joiningDate) return { isDue: false, hasStarted: false, remainingMonths: 0, totalDueAmount: 0 };
-    
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -193,7 +232,7 @@ export default function TakeAttendance() {
 
     let totalCyclesPassed = 0;
     let testDate = new Date(joinDate);
-    
+
     while (testDate <= today) {
       totalCyclesPassed++;
       testDate = new Date(joinDate);
@@ -204,11 +243,11 @@ export default function TakeAttendance() {
     const feeAmount = Number(monthlyFee) || 1000;
     const totalDueAmount = remainingMonths * feeAmount;
 
-    return { 
-      isDue: remainingMonths > 0, 
+    return {
+      isDue: remainingMonths > 0,
       hasStarted: true,
-      remainingMonths, 
-      totalDueAmount 
+      remainingMonths,
+      totalDueAmount
     };
   };
 
@@ -234,7 +273,6 @@ export default function TakeAttendance() {
     <main className="min-h-screen bg-linear-to-br from-slate-50 via-white to-purple-50 px-4 sm:px-6 lg:px-8 py-8">
       <div className="max-w-5xl mx-auto">
 
-        {/* Header & Controls */}
         <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-center gap-4">
             <Link
@@ -248,9 +286,8 @@ export default function TakeAttendance() {
               <p className="text-sm text-slate-400 mt-1">Select students present for the active session</p>
             </div>
           </div>
-          
+
           <div className="flex flex-wrap items-center gap-2">
-            {/* Session Selector */}
             <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200">
               <button
                 onClick={() => setSession('Morning')}
@@ -270,7 +307,6 @@ export default function TakeAttendance() {
               </button>
             </div>
 
-            {/* Date Picker */}
             <div className="flex items-center gap-2 bg-white border border-slate-200 px-4 py-2 rounded-2xl shadow-sm">
               <Calendar size={18} className="text-purple-600" />
               <input
@@ -298,8 +334,8 @@ export default function TakeAttendance() {
           <button
             onClick={() => setFilterPendingOnly(!filterPendingOnly)}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
-              filterPendingOnly 
-                ? 'bg-amber-500 text-white shadow-sm' 
+              filterPendingOnly
+                ? 'bg-amber-500 text-white shadow-sm'
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
@@ -307,7 +343,6 @@ export default function TakeAttendance() {
           </button>
         </div>
 
-        {/* Student List */}
         <div className="space-y-4">
           {displayedStudents.length > 0 ? (
             displayedStudents.map((student) => {
@@ -333,7 +368,7 @@ export default function TakeAttendance() {
                         )}
                       </h3>
                       <p className="text-xs text-purple-600 font-medium">{student.studentClass || 'Standard N/A'}</p>
-                      
+
                       <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs text-slate-400">
                         <span className="flex items-center gap-1">
                           <Calendar size={12} /> Joined: {student.joiningDate || 'N/A'}
@@ -351,8 +386,8 @@ export default function TakeAttendance() {
                       disabled={isNotToday}
                       className={`px-4 py-2.5 rounded-xl font-semibold text-xs flex items-center gap-1.5 transition ${
                         isNotToday ? 'opacity-50 cursor-not-allowed bg-slate-100 text-slate-400' :
-                        status === 'Present' 
-                          ? 'bg-emerald-500 text-white shadow-sm hover:bg-emerald-600' 
+                        status === 'Present'
+                          ? 'bg-emerald-500 text-white shadow-sm hover:bg-emerald-600'
                           : status === 'Absent'
                           ? 'bg-red-500 text-white shadow-sm hover:bg-red-600'
                           : 'bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200'
@@ -362,7 +397,6 @@ export default function TakeAttendance() {
                       {status === 'Present' ? `Present (${session})` : status === 'Absent' ? `Absent (${session})` : 'Mark Attendance'}
                     </button>
 
-                    {/* Fee Button */}
                     {isPending ? (
                       <button
                         onClick={() => toggleFeeStatus(student.id, cycleInfo, student.name)}

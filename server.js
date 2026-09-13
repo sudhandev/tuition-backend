@@ -518,8 +518,8 @@ const DeletedStudent = mongoose.model('DeletedStudent', studentSchema);
 const attendanceSchema = new mongoose.Schema({
   date: { type: String, required: true, unique: true },
   attendance: Object,
-  feesPaid: Object,        // existing count-based map — kept for backward compatibility
-  paidMonthsLog: Object,    // NEW: { studentId: ["2026-08", "2026-09"] }
+  feesPaid: Object,
+  paidMonthsLog: Object, // { studentId: ["2026-08", "2026-09"] }
   sessions: { type: Object, default: {} }
 });
 
@@ -652,10 +652,10 @@ app.get('/api/attendance', async (req, res) => {
   }
 });
 
-// 6. POST: Save attendance and fees safely (Fully synchronized for Morning session and root fields)
+// 6. POST: Save attendance, fees, and month-based payment log in ONE atomic write
 app.post('/api/attendance', async (req, res) => {
   try {
-    const { date, session = 'Morning', attendanceData, feesPaidData } = req.body;
+    const { date, session = 'Morning', attendanceData, feesPaidData, monthKeysToAdd } = req.body;
     if (!date) {
       return res.status(400).json({ message: 'Date is required' });
     }
@@ -664,8 +664,9 @@ app.post('/api/attendance', async (req, res) => {
 
     const isAttendanceEmpty = !attendanceData || Object.keys(attendanceData).length === 0;
     const isFeesEmpty = !feesPaidData || Object.keys(feesPaidData).length === 0;
+    const hasMonthLogUpdate = monthKeysToAdd && typeof monthKeysToAdd === 'object' && Object.keys(monthKeysToAdd).length > 0;
 
-    if (isAttendanceEmpty && isFeesEmpty) {
+    if (isAttendanceEmpty && isFeesEmpty && !hasMonthLogUpdate) {
       if (record) {
         if (record.sessions && record.sessions[session]) {
           delete record.sessions[session];
@@ -719,6 +720,19 @@ app.post('/api/attendance', async (req, res) => {
       if (!record.sessions['Evening']) record.sessions['Evening'] = { attendance: {}, feesPaid: {} };
       record.sessions['Morning'].feesPaid = feesPaidData;
       record.sessions['Evening'].feesPaid = feesPaidData;
+    }
+
+    // Apply month-log changes in the SAME document/save — no separate round trip, no race
+    if (hasMonthLogUpdate) {
+      if (!record.paidMonthsLog) record.paidMonthsLog = {};
+      Object.entries(monthKeysToAdd).forEach(([studentId, keys]) => {
+        const existing = record.paidMonthsLog[studentId] || [];
+        keys.forEach((mk) => {
+          if (!existing.includes(mk)) existing.push(mk);
+        });
+        record.paidMonthsLog[studentId] = existing;
+      });
+      record.markModified('paidMonthsLog');
     }
 
     record.markModified('sessions');
@@ -824,9 +838,8 @@ app.delete('/api/fees/:id', async (req, res) => {
   }
 });
 
-// --- NEW: MONTH-AWARE FEE PAYMENT ENDPOINTS ---
+// --- MONTH-AWARE FEE PAYMENT ENDPOINTS (kept for standalone use elsewhere) ---
 
-// 9. POST: Mark a student as paid for one or more calendar months
 app.post('/api/fees/mark-paid', async (req, res) => {
   try {
     const { studentId, date, monthKeys } = req.body;
@@ -866,7 +879,6 @@ app.post('/api/fees/mark-paid', async (req, res) => {
   }
 });
 
-// 10. POST: Undo a payment mark for a specific month (in case of misclick)
 app.post('/api/fees/unmark-paid', async (req, res) => {
   try {
     const { studentId, monthKey } = req.body;
@@ -891,7 +903,6 @@ app.post('/api/fees/unmark-paid', async (req, res) => {
   }
 });
 
-// 11. GET: All months paid, per student, across all records (deduplicated)
 app.get('/api/fees/paid-months', async (req, res) => {
   try {
     const records = await Attendance.find({}, 'paidMonthsLog');
